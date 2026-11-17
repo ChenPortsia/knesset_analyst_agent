@@ -59,7 +59,7 @@ services:
 
   scheduler:
     <<: *app
-    command: ["supercronic", "deploy/crontab"]
+    command: ["/usr/local/bin/supercronic", "deploy/crontab"]
 
 volumes:
   pgdata:
