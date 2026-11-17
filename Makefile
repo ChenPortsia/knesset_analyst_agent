@@ -9,7 +9,7 @@ export HOST_GID := $(shell id -g)
 
 up: .env
 	mkdir -p logs
-	$(COMPOSE) up -d --build --wait --wait-timeout 180
+	$(COMPOSE) up -d --build  # app services start only after db + phoenix are healthy (depends_on)
 
 down:
 	$(COMPOSE) down
