@@ -3,7 +3,9 @@ x-app: &app
   build: .
   image: knesset-app
   env_file: .env
+  user: "${HOST_UID:-1000}:${HOST_GID:-1000}"  # files in ./logs stay owned by the host user
   environment:
+    HOME: /tmp
     DB_HOST: db
     DB_PORT: "5432"
     PHOENIX_URL: http://phoenix:6006

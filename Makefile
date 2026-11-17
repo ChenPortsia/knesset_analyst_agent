@@ -1,4 +1,6 @@
 COMPOSE := docker compose
+export HOST_UID := $(shell id -u)
+export HOST_GID := $(shell id -g)
 
 .PHONY: up down status test lint fmt notebooks psql logs
 
@@ -6,6 +8,7 @@ COMPOSE := docker compose
 	cp .env.example .env
 
 up: .env
+	mkdir -p logs
 	$(COMPOSE) up -d --build --wait
 
 down:
