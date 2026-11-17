@@ -32,6 +32,13 @@ def test_run_logs_failure_and_reraises():
     assert read_lines("boom")[-1]["status"] == "failed"
 
 
+def test_run_marks_interrupt_as_failed():
+    log.configure()
+    with pytest.raises(KeyboardInterrupt), log.run("stop", record=False):
+        raise KeyboardInterrupt
+    assert read_lines("stop")[-1]["status"] == "failed"
+
+
 def test_prune_removes_old_files(tmp_path):
     old, new = tmp_path / "s" / "old.jsonl", tmp_path / "s" / "new.jsonl"
     old.parent.mkdir()

@@ -20,4 +20,6 @@ The full plan is in `PLAN.md`. Status per phase is in `PROGRESS.md`.
 
 - `make up` — start db, phoenix, app, ui, scheduler (creates `.env` from `.env.example` if missing)
 - `make status` — `knesset status` inside the app container; `uv run knesset status` runs it natively
-- `make test`, `make lint`, `make notebooks`
+- `make migrate` — apply new `sql/NNN_*.sql` (also run by `status` and `sync`)
+- `make sync` / `sync-full` / `sync-deletes` / `fixtures` — OData load; needs an Israeli IP, so run natively on the Mac
+- `make test` (DB tests need `make up`), `make lint`, `make notebooks`

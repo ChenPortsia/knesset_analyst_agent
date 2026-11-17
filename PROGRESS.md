@@ -26,6 +26,35 @@
 - The trace link printed inside the container uses the internal host `phoenix:6006`; open the same path on `localhost:6006`. Fix with a separate public URL setting when the UI needs links (Phase 9).
 - `docker-compose.gpu.yml` deferred to Phase 4 (native `uv run knesset embed` against the Dockerized db already works since ports are on localhost).
 
+## Phase 1 — Structured load 🟡 code done, live run pending (no tag yet)
+
+**Built**
+- `odata.py`: `parse_metadata()` → `EntitySet(name, url_name, base_url, columns, has_last_updated)` with the §4 overrides (`KNS_DocumentQuerie` → `KNS_DocumentQuery`, lobbyist sets → `/OdataV4/Lobbyist`). One HTTP/2 `httpx.AsyncClient`, one global semaphore (`ODATA_CONCURRENCY`, default 8), retries with jittered backoff on 5xx / 473 / timeouts, concurrency halved on 473, `GeoBlockedError` on the `maintenance-page-geo` redirect or an HTML answer. Handles the bare-array, camelCase `KNS_DocumentQuery`.
+- `sync.py`:
+  - **Full load:** 8 Id-range partitions for tables > 100k rows (last one open-ended), keyset pages `Id gt last [and Id le hi]` by Id, `$top=100`; every 10 pages: `COPY` to a temp table → upsert (only changed docs) → per-partition checkpoint, all in one transaction. All tables run concurrently under the global semaphore. A restart resumes from the checkpoints; the primary key makes duplicates impossible.
+  - **Incremental:** `LastUpdatedDate gt (watermark − 48h)` with keyset paging; tables without `LastUpdatedDate` are re-walked.
+  - **Deletes** (`--deletes`): tables ≤ 100k rows, live Ids vs raw; missing rows move to `raw._deleted`. Refuses to delete > 10% (and > 10 rows) of a table in one go.
+  - Stops a walk on a page with no new Ids, so an endpoint that ignores `$filter` can't loop forever.
+  - One `ops.runs` row per sync (`rows_in` = HTTP requests, `rows_out` = rows written), per-table failures in `ops.failures`, a `table_synced` log line per table (mode, rows, requests, seconds).
+  - Naive datetimes are read as Israel time (session timezone `Asia/Jerusalem`).
+- `raw.<set lowercased>(id bigint pk, doc jsonb, last_updated timestamptz, loaded_at)`, created on demand.
+- Migrations: `knesset migrate` applies `sql/NNN_*.sql` as etl (tracked in `ops.migrations`); `status` and `sync` run it automatically. `001_ops_raw.sql` holds the ops tables (moved out of `000_init.sql`, idempotent for existing volumes) and `raw._deleted`. Checked on an existing Phase 0 volume and on a fresh one.
+- CLI: `knesset sync [--tables a,b] [--full] [--deletes]`, `knesset migrate`, `knesset record-fixtures`. Make: `sync`, `sync-full`, `sync-deletes`, `fixtures`, `migrate`.
+- Tests: 23 offline (fake OData server via `httpx.MockTransport`, synthetic `tests/fixtures/metadata.xml`), incl. partitioned full load, crash + resume without duplicates, incremental filter and watermark, deletes and the mass-delete guard. DB tests use a throwaway `knesset_test` database and skip if Postgres is down; CI's test job runs them against a Postgres service.
+- Notebook `01_odata_load`: counts vs live `$count` (asserts ≤ 0.5%), sync state, throughput, raw samples, kill-and-restart resume test on `KNS_CommitteeSession`, timed incremental run.
+- Fix: `log.run` now records cancellation / Ctrl-C as `failed` (was `ok`).
+
+**Pending (needs an Israeli IP — run on the Mac)**
+1. `make fixtures` → commit `tests/fixtures/live/`; `test_live_fixtures_parse` then runs instead of skipping.
+2. `make sync` — the full load (target < ~1 h).
+3. `uv run jupytext --to ipynb --execute notebooks/01_odata_load.py` — counts, resume test, incremental timing.
+4. Record the measured numbers here, then tag `phase-1`.
+
+**Unverified against the live API (written from §4)**
+- The incremental literal `LastUpdatedDate gt 2026-11-15T08:00:00Z`. If the server rejects it, the incremental run fails per table with HTTP 400 and the fix is the literal format.
+- Whether `KNS_DocumentQuery` honours `$filter` / `$orderby` / `$top` (the walk is safe either way).
+- `$count` on the Lobbyist service.
+
 ## Decisions (PLAN §13)
 
 None changed yet; defaults apply.

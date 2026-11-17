@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic, shaped like the live $metadata (PLAN.md §4). Real responses: tests/fixtures/live/ -->
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="ParliamentInfo" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="KNS_Person">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="FirstName" Type="Edm.String"/>
+        <Property Name="LastName" Type="Edm.String"/>
+        <Property Name="LastUpdatedDate" Type="Edm.DateTimeOffset"/>
+      </EntityType>
+      <EntityType Name="KNS_ItemType">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Desc" Type="Edm.String"/>
+      </EntityType>
+      <EntityType Name="KNS_DocumentQuerie">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="FilePath" Type="Edm.String"/>
+        <Property Name="LastUpdatedDate" Type="Edm.DateTimeOffset"/>
+      </EntityType>
+      <EntityType Name="V_Lobbyists">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="FullName" Type="Edm.String"/>
+      </EntityType>
+      <EntityContainer Name="ParliamentInfoContainer">
+        <EntitySet Name="KNS_Person" EntityType="ParliamentInfo.KNS_Person"/>
+        <EntitySet Name="KNS_ItemType" EntityType="ParliamentInfo.KNS_ItemType"/>
+        <EntitySet Name="KNS_DocumentQuerie" EntityType="ParliamentInfo.KNS_DocumentQuerie"/>
+        <EntitySet Name="V_Lobbyists" EntityType="ParliamentInfo.V_Lobbyists"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

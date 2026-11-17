@@ -29,40 +29,4 @@ alter default privileges for role etl in schema marts, text grant select on tabl
 grant usage on schema app to etl;
 alter default privileges for role ui_app in schema app grant select on tables to etl;
 
-set role etl;
-
-create table ops.sync_state (
-    table_name text primary key,
-    watermark timestamptz,
-    last_id bigint,
-    state jsonb not null default '{}',
-    updated_at timestamptz not null default now()
-);
-
-create table ops.runs (
-    run_id text primary key,
-    step text not null,
-    started_at timestamptz not null,
-    finished_at timestamptz,
-    status text not null,
-    rows_in bigint,
-    rows_out bigint,
-    throughput double precision,
-    cost_usd numeric(12, 4),
-    error text,
-    params jsonb
-);
-create index on ops.runs (step, started_at desc);
-
-create table ops.failures (
-    id bigserial primary key,
-    run_id text,
-    step text not null,
-    item_key text not null,
-    error text,
-    attempt int not null default 1,
-    created_at timestamptz not null default now()
-);
-create index on ops.failures (step, item_key);
-
-reset role;
+-- Tables are created by migrations (sql/001_*.sql onward), applied by `knesset migrate`.

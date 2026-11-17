@@ -12,10 +12,13 @@ class Settings(BaseSettings):
     db_host: str = "localhost"
     db_port: int = 5432
     db_name: str = "knesset"
+    postgres_password: str = "change-me-postgres"
     etl_password: str = "change-me-etl"
     agent_ro_password: str = "change-me-agent"
 
     phoenix_url: str = "http://localhost:6006"
+
+    odata_concurrency: int = 8
 
     log_dir: Path = Path("logs")
     log_retention_days: int = 90

@@ -5,7 +5,8 @@ description = "Knesset data platform: database, enrichment and multi-agent analy
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "arize-phoenix-otel",
-    "httpx",
+    "asyncpg",
+    "httpx[http2]",
     "pandas",
     "psycopg[binary]",
     "pydantic-settings",
@@ -34,10 +35,11 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
-"notebooks/*.py" = ["E402", "B018"]  # cell-style imports and bare display expressions
+"notebooks/*.py" = ["E402", "B018", "F704"]  # cell imports, bare display, top-level await
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 
 [tool.jupytext]
 formats = "ipynb,py:percent"

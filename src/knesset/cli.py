@@ -1,11 +1,15 @@
 """`knesset` command line."""
 
+import asyncio
+import json
+from pathlib import Path
+
 import httpx
 import typer
 
-from knesset import log, tracing
+from knesset import log, odata, tracing
 from knesset.config import detect_device, settings
-from knesset.db import connect
+from knesset.db import connect, migrate
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -20,6 +24,7 @@ def main() -> None:
 
 
 def check_db() -> str:
+    migrate()
     with connect() as conn:
         version = conn.execute("show server_version").fetchone()[0]
         vector = conn.execute(
@@ -70,3 +75,54 @@ def status() -> None:
         typer.echo(f"{'ok ' if ok else 'ERR'}  {name:<9}{detail}")
     if not all(ok for ok, _ in results.values()):
         raise typer.Exit(1)
+
+
+@app.command("migrate")
+def migrate_cmd() -> None:
+    """Apply new sql/NNN_*.sql migrations."""
+    typer.echo("\n".join(migrate()) or "up to date")
+
+
+@app.command("sync")
+def sync_cmd(
+    tables: str = typer.Option("", help="Comma-separated entity sets (default: all)"),
+    full: bool = typer.Option(False, "--full", help="Restart a full load, ignoring checkpoints"),
+    deletes: bool = typer.Option(False, "--deletes", help="Find rows deleted at the source"),
+) -> None:
+    """Load OData sets into raw.*: resumes full loads, else incremental (or re-walk)."""
+    from knesset.sync import sync
+
+    names = [t.strip() for t in tables.split(",") if t.strip()] or None
+    try:
+        written = asyncio.run(sync(names, full=full, deletes=deletes))
+    except odata.GeoBlockedError as e:
+        typer.echo(f"ERR  {e}. Run sync from an Israeli connection.", err=True)
+        raise typer.Exit(2) from e
+    typer.echo(f"{len(written)} tables, {sum(written.values())} rows written")
+
+
+FIXTURE_SETS = ["KNS_Person", "KNS_ItemType", "KNS_DocumentQuerie", "V_Lobbyists"]
+
+
+@app.command("record-fixtures")
+def record_fixtures(out: Path = Path("tests/fixtures/live")) -> None:
+    """Save a few real API responses for offline tests (needs an Israeli IP)."""
+
+    async def run() -> None:
+        async with odata.OData() as api:
+            out.mkdir(parents=True, exist_ok=True)
+            resp = await api.fetch(f"{odata.BASE}/$metadata")
+            (out / "metadata.xml").write_text(resp.text, encoding="utf-8")
+            sets = {es.name: es for es in odata.parse_metadata(resp.text)}
+            for name in FIXTURE_SETS:
+                es = sets[name]
+                page = await api.get(es.url, {"$top": "3", "$orderby": "Id"})
+                if isinstance(page, list):
+                    page = page[:3]  # bare-array endpoint may ignore $top
+                count = await api.get(es.url, {"$count": "true", "$top": "0"})
+                for kind, payload in [("page", page), ("count", count)]:
+                    path = out / f"{name}.{kind}.json"
+                    path.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
+            typer.echo(f"{len(sets)} sets in metadata; fixtures written to {out}")
+
+    asyncio.run(run())

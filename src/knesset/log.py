@@ -72,7 +72,7 @@ def run(step: str, record: bool = True, **params: Any) -> Iterator[Run]:
             span.set_attribute("run_id", r.run_id)
             r.trace_id = format(span.get_span_context().trace_id, "032x")
             yield r
-    except Exception as e:
+    except BaseException as e:  # includes cancellation and Ctrl-C
         status, error = "failed", repr(e)
         log.exception("step_failed")
         raise
