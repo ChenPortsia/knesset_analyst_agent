@@ -1,0 +1,1 @@
+"""Knesset data platform."""

@@ -1,0 +1,65 @@
+# All ports bind to 127.0.0.1 only. Native runs (uv run knesset ...) use the same ports.
+x-app: &app
+  build: .
+  image: knesset-app
+  env_file: .env
+  environment:
+    DB_HOST: db
+    DB_PORT: "5432"
+    PHOENIX_URL: http://phoenix:6006
+    TZ: Asia/Jerusalem  # supercronic schedules run in Israel time
+  volumes:
+    - ./logs:/app/logs
+  depends_on:
+    db:
+      condition: service_healthy
+    phoenix:
+      condition: service_healthy
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${DB_NAME:-knesset}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/000_init.sql:/docker-entrypoint-initdb.d/000_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d ${DB_NAME:-knesset}"]
+      interval: 2s
+      retries: 30
+
+  phoenix:
+    image: arizephoenix/phoenix:version-21.1.0
+    environment:
+      PHOENIX_SQL_DATABASE_URL: postgresql://phoenix:${PHOENIX_DB_PASSWORD}@db:5432/phoenix
+      PHOENIX_ENABLE_AUTH: "false"  # reachable only on localhost / Tailscale (PLAN §6)
+    ports:
+      - "127.0.0.1:6006:6006"
+    healthcheck:  # the image has python but no curl
+      test: ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://localhost:6006/healthz')"]
+      interval: 3s
+      retries: 40
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    command: ["sleep", "infinity"]
+
+  ui:  # placeholder until Phase 9 (Chainlit)
+    <<: *app
+    command: ["python", "-m", "http.server", "8000", "--directory", "src/knesset/ui/placeholder"]
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  scheduler:
+    <<: *app
+    command: ["supercronic", "deploy/crontab"]
+
+volumes:
+  pgdata:

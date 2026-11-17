@@ -1,0 +1,3 @@
+# supercronic crontab, times in TZ=Asia/Jerusalem (set on the scheduler service).
+# Phase 11 replaces this heartbeat with `knesset daily`.
+30 3 * * * knesset status

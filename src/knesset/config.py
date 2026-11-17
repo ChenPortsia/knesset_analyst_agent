@@ -1,0 +1,52 @@
+"""Settings from .env, plus compute-device detection."""
+
+from functools import cache
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_name: str = "knesset"
+    etl_password: str = "change-me-etl"
+    agent_ro_password: str = "change-me-agent"
+
+    phoenix_url: str = "http://localhost:6006"
+
+    log_dir: Path = Path("logs")
+    log_retention_days: int = 90
+
+    scope_knessets: str = "25,26"
+    device: str = "auto"
+
+    def dsn(self, user: str = "etl") -> str:
+        password = self.etl_password if user == "etl" else self.agent_ro_password
+        return f"postgresql://{user}:{password}@{self.db_host}:{self.db_port}/{self.db_name}"
+
+    @property
+    def knessets(self) -> list[int]:
+        return [int(k) for k in self.scope_knessets.split(",") if k.strip()]
+
+
+@cache
+def settings() -> Settings:
+    return Settings()
+
+
+def detect_device(preferred: str = "auto") -> str:
+    """Return 'mps', 'cuda' or 'cpu'. Falls back to cpu when torch is not installed."""
+    if preferred != "auto":
+        return preferred
+    try:
+        import torch
+    except ImportError:
+        return "cpu"
+    if torch.backends.mps.is_available():
+        return "mps"
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
