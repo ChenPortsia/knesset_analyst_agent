@@ -2,6 +2,7 @@
 
 import asyncio
 import random
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Any
@@ -14,7 +15,10 @@ LOBBYIST_BASE = "https://knesset.gov.il/OdataV4/Lobbyist"
 LOBBYIST_SETS = {"V_Lobbyists", "V_LobbyistsClients"}
 URL_NAME_FIXES = {"KNS_DocumentQuerie": "KNS_DocumentQuery"}  # the declared name 404s
 PAGE_SIZE = 100  # hard cap on the server
-RETRY_STATUS = {473, 500, 502, 503, 504}
+SERVER_ERRORS = {500, 502, 503, 504}
+WAF_STATUS = {473, 481}  # non-standard firewall answers: slow down, wait longer, retry
+WAF_BACKOFF = 10  # × backoff_s
+THROTTLE_COOLDOWN_S = 30  # one halving per WAF episode, not one per in-flight request
 
 log = structlog.get_logger()
 
@@ -72,13 +76,13 @@ def row_id(row: dict) -> int:
 
 
 class OData:
-    """One shared HTTP/2 client and one global concurrency limit, halved on WAF throttling (473)."""
+    """One shared HTTP/2 client and one global concurrency limit, halved on WAF answers."""
 
     def __init__(
         self,
         concurrency: int = 8,
         transport: httpx.AsyncBaseTransport | None = None,
-        retries: int = 6,
+        retries: int = 8,
         backoff_s: float = 1.0,
     ):
         self.limit = concurrency
@@ -86,6 +90,7 @@ class OData:
         self.retries = retries
         self.backoff_s = backoff_s
         self.requests = 0
+        self.throttled_at = -THROTTLE_COOLDOWN_S
         self.client = httpx.AsyncClient(
             http2=transport is None,
             transport=transport,
@@ -101,7 +106,9 @@ class OData:
         await self.client.aclose()
 
     async def _throttle(self) -> None:
-        if self.limit > 1:
+        now = time.monotonic()
+        if self.limit > 1 and now - self.throttled_at >= THROTTLE_COOLDOWN_S:
+            self.throttled_at = now
             steal = self.limit // 2
             self.limit -= steal
             log.warning("odata_throttled", concurrency=self.limit)
@@ -109,7 +116,7 @@ class OData:
                 await self.sem.acquire()
 
     async def fetch(self, url: str, params: dict | None = None, **kw: Any) -> httpx.Response:
-        """GET with retries on 5xx / 473 / timeouts; raises GeoBlockedError on the geo redirect."""
+        """GET with retries on 5xx / WAF / timeouts; raises GeoBlockedError on the geo redirect."""
         for attempt in range(1, self.retries + 1):
             try:
                 async with self.sem:
@@ -123,16 +130,18 @@ class OData:
                             "the API answers Israeli IPs only"
                         )
                     raise RuntimeError(f"unexpected redirect {resp.status_code} -> {location}")
-                if resp.status_code not in RETRY_STATUS:
+                waf = resp.status_code in WAF_STATUS
+                if not waf and resp.status_code not in SERVER_ERRORS:
                     return resp.raise_for_status()
                 error = f"HTTP {resp.status_code}"
-                if resp.status_code == 473:
+                if waf:
                     await self._throttle()
             except (httpx.TimeoutException, httpx.TransportError) as e:
-                error = repr(e)
+                error, waf = repr(e), False
             if attempt == self.retries:
                 raise RuntimeError(f"{url} failed after {attempt} attempts: {error}")
-            delay = min(self.backoff_s * 2 ** (attempt - 1), 30) * (0.5 + random.random())
+            base, cap = (self.backoff_s * WAF_BACKOFF, 120) if waf else (self.backoff_s, 30)
+            delay = min(base * 2 ** (attempt - 1), cap) * (0.5 + random.random())
             log.warning("odata_retry", url=url, attempt=attempt, error=error, delay=round(delay, 2))
             await asyncio.sleep(delay)
         raise AssertionError("unreachable")

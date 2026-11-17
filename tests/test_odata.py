@@ -98,9 +98,9 @@ def test_geo_block_redirect_raises():
         run(go())
 
 
-def test_retries_5xx_and_halves_concurrency_on_473():
+def test_retries_5xx_and_halves_concurrency_once_per_waf_episode():
     fake = FakeOData(sample_tables())
-    fake.fail["KNS_Person"] = [500, 473, 503]
+    fake.fail["KNS_Person"] = [500, 473, 481, 503]  # two WAF answers within the cooldown
 
     async def go():
         async with api_for(fake) as api:
