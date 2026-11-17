@@ -9,7 +9,7 @@ export HOST_GID := $(shell id -g)
 
 up: .env
 	mkdir -p logs
-	$(COMPOSE) up -d --build --wait
+	$(COMPOSE) up -d --build --wait --wait-timeout 180
 
 down:
 	$(COMPOSE) down
