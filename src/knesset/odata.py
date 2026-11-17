@@ -94,7 +94,7 @@ class OData:
         self.client = httpx.AsyncClient(
             http2=transport is None,
             transport=transport,
-            timeout=httpx.Timeout(30, connect=10),
+            timeout=httpx.Timeout(90, connect=20),  # as in ckan-version-tracker
             follow_redirects=False,
             headers={"Accept": "application/json", "User-Agent": "knesset-data/0.1"},
         )

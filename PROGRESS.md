@@ -53,9 +53,10 @@
 **Live findings**
 - First full load on the Mac (run `86d4e91b1dbf`, 84 s): 16 tables done, 32 failed mid-walk on **HTTP 481**, a second non-standard firewall status besides 473. Fix: 481 handled like 473 (retry, halve concurrency), firewall backoff 10 s → 120 s with 8 attempts, at most one halving per 30 s. Checkpoints kept the partial progress.
 
-**Unverified against the live API (written from §4)**
-- The incremental literal `LastUpdatedDate gt 2026-11-15T08:00:00Z`. If the server rejects it, the incremental run fails per table with HTTP 400 and the fix is the literal format.
-- Whether `KNS_DocumentQuery` honours `$filter` / `$orderby` / `$top` (the walk is safe either way).
+- Compared with the reference `zomer-g/ckan-version-tracker` (`app/services/knesset_db.py`, `knesset_http.py`): same keyset paging, 10-page batches, 48 h overlap, endpoint overrides, and the same incremental literal (`LastUpdatedDate gt <UTC>Z and Id gt X`), which runs in their production; `Id gt` filtering works on `KNS_DocumentQuery` there too. The difference is pacing: they walk one table and one request at a time (≈ 2 pages/s, ≈ 5 h for a full load) and never meet the WAF. Copied their 90 s / 20 s connect timeout. If the WAF-tolerated rate keeps the full load well above 1 h, propose relaxing that acceptance target rather than pushing concurrency.
+- `knesset_tables_meta.py` (Hebrew table descriptions) is to be copied with attribution in Phase 2, for the dbt docs and the Analyst prompt.
+
+**Unverified against the live API**
 - `$count` on the Lobbyist service.
 
 ## Decisions (PLAN §13)
