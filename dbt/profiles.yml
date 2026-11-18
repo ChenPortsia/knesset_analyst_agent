@@ -1,0 +1,13 @@
+# Connection comes from .env: `knesset dbt ...` exports these from the app settings.
+knesset:
+  target: default
+  outputs:
+    default:
+      type: postgres
+      host: "{{ env_var('DB_HOST', 'localhost') }}"
+      port: "{{ env_var('DB_PORT', '5432') | int }}"
+      dbname: "{{ env_var('DB_NAME', 'knesset') }}"
+      user: etl
+      password: "{{ env_var('ETL_PASSWORD') }}"
+      schema: marts
+      threads: 4

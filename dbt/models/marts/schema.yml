@@ -1,0 +1,480 @@
+version: 2
+
+# Descriptions are bilingual ("English | עברית"); they feed the Analyst agent's prompt.
+# All timestamps are Israel local time (timestamp without time zone).
+# Key tests fail the build. Tests on references taken from the source (relationships,
+# not_null on foreign keys) only warn: the source data has gaps we cannot fix.
+
+models:
+  - name: dim_knesset
+    description: "One row per Knesset term. | שורה לכל כנסת."
+    columns:
+      - name: knesset_num
+        description: "Knesset number (1–26). | מספר הכנסת."
+        data_tests: [unique, not_null]
+      - name: knesset_name
+        description: "Name of the term. | שם הכנסת."
+      - name: start_date
+        description: "First plenum session period start. | תחילת הכנסת."
+      - name: finish_date
+        description: "Last session period end; null while current. | סיום הכנסת."
+      - name: is_current
+        description: "The current Knesset. | הכנסת הנוכחית."
+      - name: n_sessions
+        description: "Number of assembly/session periods. | מספר כנסים ומושבים."
+
+  - name: dim_status
+    description: "Statuses of bills, queries, agenda items and sessions. | סטטוסים של הצעות חוק, שאילתות, הצעות לסדר וישיבות."
+    columns:
+      - name: status_id
+        description: "Status id. | מזהה סטטוס."
+        data_tests: [unique, not_null]
+      - name: status_desc
+        description: "Status name. | תיאור הסטטוס."
+      - name: type_id
+        description: "Item type the status applies to. | סוג הפריט שהסטטוס שייך אליו."
+      - name: type_desc
+        description: "Item type name. | תיאור סוג הפריט."
+      - name: is_active
+        description: "Status still in use. | סטטוס פעיל."
+
+  - name: dim_item_type
+    description: "Item types used by session items (fct_session_item.item_type_id). | סוגי פריטים בסדר היום של ישיבות."
+    columns:
+      - name: item_type_id
+        description: "1 query, 2 bill, 4 agenda motion, 5 plenum session, 12 committee session, 6000 secondary law, 6003 Israel law. | 1 שאילתה, 2 הצעת חוק, 4 הצעה לסדר, 5 ישיבת מליאה, 12 ישיבת ועדה, 6000 חקיקת משנה, 6003 חוק."
+        data_tests: [unique, not_null]
+      - name: item_type_desc
+        description: "Item type name. | שם סוג הפריט."
+      - name: source_table
+        description: "OData table that item_id points to. | הטבלה שאליה מפנה item_id."
+
+  - name: dim_ministry
+    description: "Government ministries. | משרדי ממשלה."
+    columns:
+      - name: ministry_id
+        description: "Ministry id. | מזהה משרד."
+        data_tests: [unique, not_null]
+      - name: ministry_name
+        description: "Ministry name. | שם המשרד."
+      - name: is_active
+        description: "Ministry exists today. | משרד פעיל."
+      - name: category_name
+        description: "Ministry category. | קטגוריית משרד."
+      - name: gov_id
+        description: "Government-wide ministry id. | מזהה ממשלתי."
+
+  - name: dim_faction
+    description: "Factions (parliamentary groups), one row per faction per Knesset. | סיעות, שורה לכל סיעה בכל כנסת."
+    columns:
+      - name: faction_id
+        description: "Faction id. | מזהה סיעה."
+        data_tests: [unique, not_null]
+      - name: faction_name
+        description: "Faction name. | שם הסיעה."
+      - name: knesset_num
+        description: "Knesset number. | מספר הכנסת."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_knesset'), field: knesset_num}
+              config: {severity: warn}
+      - name: start_date
+        description: "Faction start. | תחילת הסיעה."
+      - name: finish_date
+        description: "Faction end; null if current. | סיום הסיעה."
+      - name: is_current
+        description: "Faction in the current Knesset. | סיעה נוכחית."
+
+  - name: dim_committee
+    description: "Knesset committees, one row per committee per Knesset. | ועדות הכנסת, שורה לכל ועדה בכל כנסת."
+    columns:
+      - name: committee_id
+        description: "Committee id. | מזהה ועדה."
+        data_tests: [unique, not_null]
+      - name: committee_name
+        description: "Committee name. | שם הוועדה."
+      - name: knesset_num
+        description: "Knesset number. | מספר הכנסת."
+      - name: category_desc
+        description: "Committee category (subject area). | קטגוריית הוועדה."
+      - name: committee_type_desc
+        description: "Committee type (permanent, special, joint, sub-committee…). | סוג הוועדה (קבועה, מיוחדת, משותפת, ועדת משנה…)."
+      - name: additional_type_desc
+        description: "Additional type. | סוג נוסף."
+      - name: parent_committee_id
+        description: "Parent committee for sub-committees. | ועדת האם (לוועדות משנה)."
+      - name: start_date
+        description: "Committee start. | תחילת פעילות."
+      - name: finish_date
+        description: "Committee end. | סיום פעילות."
+      - name: is_current
+        description: "Committee active now. | ועדה פעילה."
+
+  - name: dim_person
+    description: "People: MKs, ministers and other office holders, with name variants for entity resolution. | אנשים: חברי כנסת, שרים ובעלי תפקידים, עם וריאציות שם לזיהוי."
+    columns:
+      - name: person_id
+        description: "Person id (also MkId in vote results). | מזהה אדם (גם MkId בתוצאות הצבעה)."
+        data_tests: [unique, not_null]
+      - name: first_name
+        description: "First name. | שם פרטי."
+      - name: last_name
+        description: "Last name. | שם משפחה."
+      - name: full_name
+        description: "First and last name. | שם מלא."
+      - name: gender_desc
+        description: "Gender. | מגדר."
+      - name: is_current
+        description: "Holds a position now. | מכהן כיום."
+      - name: name_variants
+        description: "Name spellings in both orders, incl. those used in vote results. | כתיבי שם בשני הסדרים, כולל אלה שבתוצאות ההצבעות."
+      - name: mk_knessets
+        description: "Knessets the person served in as an MK (had a faction). | הכנסות שבהן כיהן כח\"כ."
+      - name: first_knesset
+        description: "First Knesset as MK. | הכנסת הראשונה כח\"כ."
+      - name: last_knesset
+        description: "Last Knesset as MK. | הכנסת האחרונה כח\"כ."
+
+  - name: fct_person_position
+    description: "Positions held by people over time: MK, faction membership, minister, committee roles. | תפקידים לאורך זמן: ח\"כ, חברות בסיעה, שר, תפקידים בוועדות."
+    columns:
+      - name: person_to_position_id
+        description: "Row id. | מזהה שורה."
+        data_tests: [unique, not_null]
+      - name: person_id
+        description: "Person. | האדם."
+        data_tests:
+          - not_null:
+              config: {severity: warn}
+          - relationships:
+              arguments: {to: ref('dim_person'), field: person_id}
+              config: {severity: warn}
+      - name: position_id
+        description: "Position type id. | מזהה תפקיד."
+      - name: position_desc
+        description: "Position name. | שם התפקיד."
+      - name: knesset_num
+        description: "Knesset number. | מספר הכנסת."
+      - name: start_date
+        description: "Start of the position. | תחילת הכהונה."
+      - name: finish_date
+        description: "End of the position; null if current. | סיום הכהונה."
+      - name: faction_id
+        description: "Faction (for faction membership rows). | הסיעה."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_faction'), field: faction_id}
+              config: {severity: warn}
+      - name: faction_name
+        description: "Faction name as recorded on the position. | שם הסיעה."
+      - name: committee_id
+        description: "Committee (for committee roles). | הוועדה."
+      - name: committee_name
+        description: "Committee name. | שם הוועדה."
+      - name: ministry_id
+        description: "Ministry (for ministers and deputies). | המשרד."
+      - name: ministry_name
+        description: "Ministry name. | שם המשרד."
+      - name: government_num
+        description: "Government number. | מספר הממשלה."
+      - name: duty_desc
+        description: "Duty description. | תיאור התפקיד."
+      - name: is_current
+        description: "Position held now. | תפקיד נוכחי."
+
+  - name: fct_committee_session
+    description: "Committee sessions. | ישיבות ועדה."
+    columns:
+      - name: committee_session_id
+        description: "Session id. | מזהה ישיבה."
+        data_tests: [unique, not_null]
+      - name: session_number
+        description: "Session number within the committee. | מספר הישיבה."
+      - name: knesset_num
+        description: "Knesset number. | מספר הכנסת."
+      - name: committee_id
+        description: "Committee. | הוועדה."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_committee'), field: committee_id}
+              config: {severity: warn}
+      - name: committee_name
+        description: "Committee name. | שם הוועדה."
+      - name: type_desc
+        description: "Session type (open, closed, tour…). | סוג הישיבה."
+      - name: status_desc
+        description: "Session status (held, cancelled…). | סטטוס הישיבה."
+      - name: location
+        description: "Room or place. | מיקום."
+      - name: start_date
+        description: "Start time. | מועד התחלה."
+      - name: finish_date
+        description: "End time. | מועד סיום."
+      - name: session_url
+        description: "Page on the Knesset site. | קישור לישיבה."
+      - name: broadcast_url
+        description: "Video broadcast. | קישור לשידור."
+      - name: note
+        description: "Note. | הערה."
+      - name: n_items
+        description: "Number of agenda items. | מספר הנושאים בסדר היום."
+
+  - name: fct_plenum_session
+    description: "Plenum sessions. | ישיבות מליאה."
+    columns:
+      - name: plenum_session_id
+        description: "Session id. | מזהה ישיבה."
+        data_tests: [unique, not_null]
+      - name: session_number
+        description: "Session number. | מספר הישיבה."
+      - name: knesset_num
+        description: "Knesset number. | מספר הכנסת."
+      - name: session_name
+        description: "Session name. | שם הישיבה."
+      - name: start_date
+        description: "Start time. | מועד התחלה."
+      - name: finish_date
+        description: "End time. | מועד סיום."
+      - name: is_special_meeting
+        description: "Special session. | ישיבה מיוחדת."
+      - name: n_items
+        description: "Number of agenda items. | מספר הנושאים."
+      - name: n_votes
+        description: "Number of votes held. | מספר ההצבעות."
+
+  - name: fct_session_item
+    description: "Items discussed in committee and plenum sessions. item_id points to the table in dim_item_type.source_table. | נושאים בסדר היום של ישיבות ועדה ומליאה."
+    columns:
+      - name: session_item_key
+        description: "Unique key: 'c:' or 'p:' + source row id. | מפתח ייחודי."
+        data_tests: [unique, not_null]
+      - name: session_type
+        description: "committee or plenum. | ועדה או מליאה."
+        data_tests:
+          - accepted_values:
+              arguments: {values: [committee, plenum]}
+      - name: source_item_id
+        description: "Row id in KNS_CmtSessionItem / KNS_PlmSessionItem. | מזהה השורה במקור."
+      - name: session_id
+        description: "committee_session_id or plenum_session_id. | מזהה הישיבה."
+      - name: item_id
+        description: "Id of the item in its own table (bill, query, agenda…). | מזהה הפריט בטבלה שלו."
+      - name: item_type_id
+        description: "Item type. | סוג הפריט."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_item_type'), field: item_type_id}
+              config: {severity: warn}
+      - name: item_type_desc
+        description: "Item type name. | שם סוג הפריט."
+      - name: ordinal
+        description: "Position in the agenda. | מיקום בסדר היום."
+      - name: status_id
+        description: "Item status. | סטטוס."
+      - name: item_name
+        description: "Item title. | שם הנושא."
+
+  - name: fct_bill
+    description: "Bills, including those that became law. | הצעות חוק, כולל אלה שנחקקו."
+    columns:
+      - name: bill_id
+        description: "Bill id. | מזהה הצעת החוק."
+        data_tests: [unique, not_null]
+      - name: knesset_num
+        description: "Knesset number. | מספר הכנסת."
+      - name: bill_name
+        description: "Current name. | שם ההצעה."
+      - name: type_desc
+        description: "Bill type. | סוג ההצעה."
+      - name: subtype_desc
+        description: "Private, government or committee bill. | פרטית, ממשלתית או ועדה."
+      - name: private_number
+        description: "P/ number for private bills. | מספר פ/ להצעות פרטיות."
+      - name: bill_number
+        description: "Bill number. | מספר ההצעה."
+      - name: committee_id
+        description: "Committee handling the bill. | הוועדה המטפלת."
+      - name: status_id
+        description: "Status. | סטטוס."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_status'), field: status_id}
+              config: {severity: warn}
+      - name: status_desc
+        description: "Status name. | שם הסטטוס."
+      - name: is_passed
+        description: "Passed third reading (status starts with 'התקבלה בקריאה שלישית'). | עברה קריאה שלישית."
+      - name: publication_date
+        description: "Publication date in Reshumot (for laws). | תאריך פרסום ברשומות."
+      - name: publication_series_desc
+        description: "Publication series. | סדרת הפרסום."
+      - name: postponement_reason_desc
+        description: "Why the bill stalled. | סיבת העיכוב."
+      - name: is_continuation_bill
+        description: "Continued from a previous Knesset. | דין רציפות."
+      - name: summary_law
+        description: "Summary. | תקציר."
+      - name: initiator_ids
+        description: "Person ids of the initiators, in order. | יוזמי ההצעה."
+      - name: joiner_ids
+        description: "Person ids of MKs who joined later. | מצטרפים."
+      - name: n_previous_names
+        description: "Number of earlier names. | מספר שמות קודמים."
+
+  - name: fct_vote
+    description: "Plenum votes with result counts. | הצבעות במליאה עם ספירת התוצאות."
+    columns:
+      - name: vote_id
+        description: "Vote id. | מזהה הצבעה."
+        data_tests: [unique, not_null]
+      - name: vote_datetime
+        description: "Time of the vote. | מועד ההצבעה."
+      - name: plenum_session_id
+        description: "Plenum session. | ישיבת המליאה."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('fct_plenum_session'), field: plenum_session_id}
+              config: {severity: warn}
+      - name: item_id
+        description: "Item voted on (no type column in the source; usually a bill). | הפריט שעליו הצביעו."
+      - name: ordinal
+        description: "Order in the session. | סדר בישיבה."
+      - name: vote_title
+        description: "Vote title. | כותרת ההצבעה."
+      - name: vote_subject
+        description: "Vote subject. | נושא ההצבעה."
+      - name: vote_method_desc
+        description: "Voting method. | שיטת ההצבעה."
+      - name: vote_status_desc
+        description: "Vote status (accepted, rejected…). | תוצאת ההצבעה."
+      - name: is_no_confidence
+        description: "No-confidence vote. | הצבעת אי-אמון."
+      - name: for_option_desc
+        description: "Meaning of 'for'. | משמעות 'בעד'."
+      - name: against_option_desc
+        description: "Meaning of 'against'. | משמעות 'נגד'."
+      - name: n_for
+        description: "MKs voting for. | מספר בעד."
+      - name: n_against
+        description: "MKs voting against. | מספר נגד."
+      - name: n_abstain
+        description: "MKs abstaining. | מספר נמנעים."
+      - name: n_results
+        description: "Per-MK result rows. | מספר שורות תוצאה."
+
+  - name: fct_vote_result
+    description: "Per-MK plenum vote results (from 1982), with the MK's faction at the time of the vote. | תוצאות הצבעה לכל ח\"כ, עם הסיעה בזמן ההצבעה."
+    columns:
+      - name: vote_result_id
+        description: "Row id. | מזהה שורה."
+        data_tests: [unique, not_null]
+      - name: vote_id
+        description: "Vote. | ההצבעה."
+        data_tests:
+          - not_null:
+              config: {severity: warn}
+          - relationships:
+              arguments: {to: ref('fct_vote'), field: vote_id}
+              config: {severity: warn}
+      - name: person_id
+        description: "MK. | חבר הכנסת."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_person'), field: person_id}
+              config: {severity: warn}
+      - name: vote_datetime
+        description: "Time of the vote. | מועד ההצבעה."
+      - name: result_code
+        description: "Result code. | קוד תוצאה."
+      - name: result_desc
+        description: "For, against, abstain… | בעד, נגד, נמנע…"
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['בעד', 'נגד', 'נמנע', 'לא הצביע']}
+              config: {severity: warn}
+      - name: plenum_session_id
+        description: "Plenum session. | ישיבת המליאה."
+      - name: item_id
+        description: "Item voted on. | הפריט."
+      - name: faction_id
+        description: "MK's faction at the time of the vote. | סיעת הח\"כ בזמן ההצבעה."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_faction'), field: faction_id}
+              config: {severity: warn}
+      - name: faction_name
+        description: "Faction name. | שם הסיעה."
+
+  - name: fct_query
+    description: "Parliamentary questions to ministers (from 2013). | שאילתות לשרים."
+    columns:
+      - name: query_id
+        description: "Query id. | מזהה שאילתה."
+        data_tests: [unique, not_null]
+      - name: query_number
+        description: "Query number. | מספר השאילתה."
+      - name: knesset_num
+        description: "Knesset number. | מספר הכנסת."
+      - name: query_name
+        description: "Subject. | נושא."
+      - name: type_desc
+        description: "Regular, urgent or direct. | רגילה, דחופה או ישירה."
+      - name: status_id
+        description: "Status. | סטטוס."
+      - name: status_desc
+        description: "Status name. | שם הסטטוס."
+      - name: person_id
+        description: "MK who asked. | הח\"כ השואל."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_person'), field: person_id}
+              config: {severity: warn}
+      - name: ministry_id
+        description: "Ministry asked. | המשרד הנשאל."
+      - name: ministry_name
+        description: "Ministry name. | שם המשרד."
+      - name: submit_date
+        description: "Submitted. | תאריך הגשה."
+      - name: reply_minister_date
+        description: "Minister replied. | תאריך תשובת השר."
+      - name: reply_date_planned
+        description: "Planned reply date. | מועד תשובה מתוכנן."
+
+  - name: fct_agenda
+    description: "Motions for the agenda. | הצעות לסדר היום."
+    columns:
+      - name: agenda_id
+        description: "Agenda motion id. | מזהה."
+        data_tests: [unique, not_null]
+      - name: agenda_number
+        description: "Number. | מספר."
+      - name: knesset_num
+        description: "Knesset number. | מספר הכנסת."
+      - name: agenda_name
+        description: "Subject. | נושא."
+      - name: classification_desc
+        description: "Regular, urgent… | רגילה, דחופה…"
+      - name: subtype_desc
+        description: "Subtype. | תת-סוג."
+      - name: status_id
+        description: "Status. | סטטוס."
+      - name: status_desc
+        description: "Status name. | שם הסטטוס."
+      - name: initiator_person_id
+        description: "MK who proposed it. | הח\"כ המציע."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_person'), field: person_id}
+              config: {severity: warn}
+      - name: minister_person_id
+        description: "Minister who replied. | השר המשיב."
+      - name: gov_recommendation_desc
+        description: "Government recommendation. | עמדת הממשלה."
+      - name: president_decision_date
+        description: "Speaker's decision date. | תאריך החלטת היו\"ר."
+      - name: committee_id
+        description: "Committee it was referred to. | הוועדה שאליה הועברה."
+      - name: recommend_committee_id
+        description: "Recommended committee. | הוועדה המומלצת."
+      - name: leading_agenda_id
+        description: "Leading motion when merged. | ההצעה המובילה."

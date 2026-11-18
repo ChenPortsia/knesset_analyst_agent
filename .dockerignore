@@ -6,3 +6,5 @@ logs
 .pytest_cache
 .ruff_cache
 notebooks/*.ipynb
+dbt/target
+dbt/logs

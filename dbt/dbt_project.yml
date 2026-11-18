@@ -1,0 +1,23 @@
+name: knesset
+version: "1.0"
+profile: knesset
+config-version: 2
+
+flags:
+  send_anonymous_usage_stats: false
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+target-path: target
+clean-targets: [target, dbt_packages, logs]
+
+models:
+  knesset:
+    staging:
+      +materialized: ephemeral  # typed views of raw.* inlined into the marts
+    marts:
+      +materialized: table
+
+data_tests:
+  knesset:
+    +severity: error

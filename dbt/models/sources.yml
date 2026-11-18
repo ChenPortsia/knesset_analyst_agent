@@ -1,0 +1,47 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: "OData rows as jsonb (doc), loaded by `knesset sync`. Hebrew descriptions: zomer-g/ckan-version-tracker (MIT)."
+    tables:
+      - name: kns_person
+        description: "People: MKs, ministers and other office holders. | אנשים — חברי הכנסת ובעלי תפקידים בכנסת, מכל התקופות."
+      - name: kns_persontoposition
+        description: "Positions held by people over time (MK, faction, minister, committee role). | שיוך אנשים לתפקידים לאורך זמן — חבר כנסת, שר, יו\"ר ועדה וכד', כולל תקופת הכהונה, הכנסת והסיעה."
+      - name: kns_position
+        description: "Position types. | טבלת עזר — סוגי התפקידים האפשריים."
+      - name: kns_faction
+        description: "Factions (parliamentary groups) per Knesset. | סיעות הכנסת — כל הסיעות מאז הכנסת הראשונה, כולל תקופת פעילותן."
+      - name: kns_committee
+        description: "Knesset committees. | ועדות הכנסת — פרטי כל הוועדות מאז הכנסת הראשונה."
+      - name: kns_committeesession
+        description: "Committee sessions. | ישיבות ועדות הכנסת — מועד, מיקום ונושא כל ישיבה."
+      - name: kns_cmtsessionitem
+        description: "Agenda items of committee sessions. | הפריטים (נושאים, הצעות חוק, שאילתות) שנדונו בכל ישיבת ועדה."
+      - name: kns_plenumsession
+        description: "Plenum sessions. | ישיבות מליאת הכנסת — מועד וכותרת כל ישיבה."
+      - name: kns_plmsessionitem
+        description: "Agenda items of plenum sessions. | הפריטים שנדונו בכל ישיבת מליאה (הצעות חוק, הצעות לסדר ועוד)."
+      - name: kns_bill
+        description: "Bills and laws passed. | הצעות חוק — כל הצעות החוק שטופלו בכנסת מאז הכנסת הראשונה ועד היום, וכל החוקים שנחקקו מכל התקופות ובכל סוגי ההליכים."
+      - name: kns_billinitiator
+        description: "Bill initiators and co-signers. | יוזמי הצעות החוק — חברי הכנסת שהגישו את ההצעה, בחלוקה ליוזמים ולמצטרפים."
+      - name: kns_billname
+        description: "Previous names of bills. | שמות קודמים של הצעות חוק — שם ההצעה עשוי להשתנות בין הקריאות; כאן מרוכזים כל השמות שקדמו לשם הנוכחי המוצג ב-KNS_Bill."
+      - name: kns_plenumvote
+        description: "Plenum votes. | הצבעות שנערכו במליאת הכנסת — נושא ההצבעה, מועדה ותוצאתה המסכמת."
+      - name: kns_plenumvoteresult
+        description: "Per-MK plenum vote results (from 1982). | תוצאות הצבעה פרטניות — כיצד הצביע כל חבר כנסת בכל הצבעה במליאה (הטבלה הגדולה בשירות, כ-2 מיליון שורות)."
+      - name: kns_query
+        description: "Parliamentary questions to ministers (from 2013). | שאילתות — פניות רשמיות של חברי כנסת לשרי הממשלה, כולל סטטוס ומועד המענה."
+      - name: kns_agenda
+        description: "Motions for the agenda. | הצעות לסדר היום — כל ההצעות לסדר שהוגשו לכנסת."
+      - name: kns_knessetdates
+        description: "Knesset terms, assemblies and sessions. | מועדי הכנסות — תאריכי הכהונה של כל כנסת ומושביה (כינוסים ופגרות)."
+      - name: kns_status
+        description: "Statuses of bills, queries, agenda items and sessions. | טבלת עזר — הסטטוסים האפשריים של כל סוגי הפריטים (למשל שלבי הליך החקיקה)."
+      - name: kns_itemtype
+        description: "Item types used by session items. | טבלת עזר — סוגי הפריטים בשירות (הצעת חוק, שאילתה, הצעה לסדר וכו')."
+      - name: kns_govministry
+        description: "Government ministries. | משרדי הממשלה — טבלת עזר לשיוך שאילתות, חוקים וחקיקת משנה."

@@ -2,7 +2,7 @@ COMPOSE := docker compose
 export HOST_UID := $(shell id -u)
 export HOST_GID := $(shell id -g)
 
-.PHONY: up down status migrate sync sync-full sync-deletes fixtures test lint fmt notebooks psql logs
+.PHONY: up down status migrate dbt sync sync-full sync-deletes fixtures test lint fmt notebooks psql logs
 
 .env:
 	cp .env.example .env
@@ -32,6 +32,9 @@ sync-deletes:
 
 fixtures:
 	uv run knesset record-fixtures
+
+dbt:
+	uv run knesset dbt build
 
 test:
 	uv run pytest -q

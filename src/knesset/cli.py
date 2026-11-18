@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import httpx
@@ -126,3 +127,24 @@ def record_fixtures(out: Path = Path("tests/fixtures/live")) -> None:
             typer.echo(f"{len(sets)} sets in metadata; fixtures written to {out}")
 
     asyncio.run(run())
+
+
+DBT_DIR = Path(__file__).resolve().parents[2] / "dbt"
+
+
+@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def dbt(ctx: typer.Context) -> None:
+    """Run dbt with the connection from .env, e.g. `knesset dbt build`."""
+    from dbt.cli.main import dbtRunner
+
+    s = settings()
+    os.environ.update(
+        DB_HOST=s.db_host, DB_PORT=str(s.db_port), DB_NAME=s.db_name, ETL_PASSWORD=s.etl_password
+    )
+    args = ctx.args or ["build"]
+    with log.run("dbt", args=args):
+        result = dbtRunner().invoke(
+            [*args, "--project-dir", str(DBT_DIR), "--profiles-dir", str(DBT_DIR)]
+        )
+    if not result.success:
+        raise typer.Exit(1)

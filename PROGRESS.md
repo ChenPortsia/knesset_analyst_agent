@@ -70,6 +70,24 @@
 - `KNS_BroadcastCommitteSession` (109k rows, no `LastUpdatedDate`) is re-walked on each incremental run; the whole incremental still took 2.5 min.
 - Deletes (`knesset sync --deletes`) are built and tested offline but not yet run live; Phase 11 schedules them weekly.
 
+## Phase 2 — dbt models 🟡 built and tested on synthetic data; real-data build pending (no tag yet)
+
+**Built**
+- `dbt/` project (dbt-core 1.12, dbt-postgres 1.11); run with `knesset dbt <args>` (`make dbt` = build), which passes the `.env` connection to `dbt/profiles.yml` and logs one `ops.runs` row. Anonymous usage stats off.
+- Sources: 20 `raw.*` tables (`models/sources.yml`), described in English plus the Hebrew descriptions from `src/knesset/tables_meta.py` (copied verbatim from zomer-g/ckan-version-tracker with its MIT notice; excluded from ruff).
+- Staging: 20 ephemeral `stg_*` models (inlined into the marts, so no extra schema or grants), built with two macros:
+  - `j(col, type)`: typed jsonb extraction. Source datetimes carry an Israel offset; `::timestamp` keeps the wall-clock time, so every mart timestamp is Israel local time.
+  - `he_norm(expr)`: drops direction marks and niqqud, maps geresh/gershayim and curly quotes to ASCII, NBSP → space, collapses whitespace.
+- Marts (16 tables in `marts`, readable by `agent_ro`): `dim_knesset`, `dim_status`, `dim_item_type`, `dim_ministry`, `dim_faction`, `dim_committee`, `dim_person` (name variants in both orders, incl. spellings from vote results; MK terms from faction memberships), `fct_person_position`, `fct_committee_session`, `fct_plenum_session`, `fct_session_item` (committee + plenum items, key `c:`/`p:` + id), `fct_bill` (status, `is_passed`, initiators/joiners), `fct_vote` (for/against/abstain counts), `fct_vote_result` (faction at vote time: the membership covering the vote date, latest start wins), `fct_query`, `fct_agenda`.
+- `schema.yml`: bilingual ("English | עברית") descriptions for every mart and column (they feed the Analyst prompt in Phase 7). 48 tests: unique/not_null keys and accepted values fail the build; tests on source references (relationships, not_null foreign keys) and the guessed vote-result labels only warn.
+- `tests/test_dbt.py`: builds the project on synthetic raw rows and checks faction at vote time (incl. a vote on a membership's last day), vote counts, Israel wall-clock timestamps, Hebrew normalization, name variants, `is_passed`, session-item keys, `dim_knesset`. Found and fixed: `dim_knesset.finish_date` took the max of past periods for the current Knesset.
+- Notebook `02_marts`: row counts, dbt test results, faction-match rate (overall and per year), the real vote-result labels and bill statuses, sample analyses (bills per Knesset, top initiators, committee activity, queries per ministry, faction cohesion). Runs end to end on the synthetic marts.
+
+**Pending (on the Mac, real data)**
+1. `make dbt` — all 16 models and 48 tests; error-level tests must pass, warnings reviewed.
+2. `uv run jupytext --to ipynb --execute notebooks/02_marts.py`.
+3. Check the guesses against real values: vote-result labels (`בעד` / `נגד` / `נמנע` / `לא הצביע`) and `is_passed` (status text starting with `התקבלה בקריאה שלישית`). Then tag `phase-2`.
+
 ## Changes to the plan
 
 - 18 Nov 2026, approved by the user: Phase 1 full-load target changed from < ~1 h to < ~4.5 h (WAF-limited to ~2 requests/s). PLAN.md §4 and §10 updated.

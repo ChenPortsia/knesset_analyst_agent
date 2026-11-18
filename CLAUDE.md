@@ -22,4 +22,5 @@ The full plan is in `PLAN.md`. Status per phase is in `PROGRESS.md`.
 - `make status` — `knesset status` inside the app container; `uv run knesset status` runs it natively
 - `make migrate` — apply new `sql/NNN_*.sql` (also run by `status` and `sync`)
 - `make sync` / `sync-full` / `sync-deletes` / `fixtures` — OData load; needs an Israeli IP, so run natively on the Mac
+- `make dbt` — `knesset dbt build` (marts in schema `marts`; any dbt command: `uv run knesset dbt <args>`)
 - `make test` (DB tests need `make up`), `make lint`, `make notebooks`
