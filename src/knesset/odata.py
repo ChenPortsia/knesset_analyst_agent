@@ -11,6 +11,8 @@ from typing import Any
 import httpx
 import structlog
 
+from knesset.config import settings
+
 BASE = "https://knesset.gov.il/OdataV4/ParliamentInfo"
 LOBBYIST_BASE = "https://knesset.gov.il/OdataV4/Lobbyist"
 LOBBYIST_SETS = {"V_Lobbyists", "V_LobbyistsClients"}
@@ -84,13 +86,13 @@ class OData:
 
     def __init__(
         self,
-        concurrency: int = 8,
+        concurrency: int | None = None,  # default: ODATA_CONCURRENCY from .env
         transport: httpx.AsyncBaseTransport | None = None,
         retries: int = 8,
         backoff_s: float = 1.0,
     ):
-        self.limit = concurrency
-        self.sem = asyncio.Semaphore(concurrency)
+        self.limit = concurrency or settings().odata_concurrency
+        self.sem = asyncio.Semaphore(self.limit)
         self.retries = retries
         self.backoff_s = backoff_s
         self.requests = 0

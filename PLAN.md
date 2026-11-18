@@ -114,7 +114,7 @@ knesset-data/
 - Lobbyist sets `V_Lobbyists`, `V_LobbyistsClients` are declared in that metadata but served from `https://knesset.gov.il/OdataV4/Lobbyist`.
 - 46 + 2 sets, ~3.4M rows. Biggest: `KNS_PlenumVoteResult` 1.95M, `KNS_DocumentCommitteeSession` 202k, `KNS_BillInitiator` 169k, `KNS_PlmSessionItem` 169k, `KNS_DocumentBill` 112k, `KNS_CommitteeSession` 109k.
 - Integer key `Id` everywhere. Most sets have `LastUpdatedDate`. Without it: `KNS_ItemType`, `KNS_CmtSiteCode`, `KNS_MkSiteCode`, `KNS_BroadcastCommitteSession`, lobbyist sets.
-- **Page size hard-capped at 100.** Page latency ~0.3–0.8 s. 8 concurrent requests completed in ~0.6–0.9 s with no errors (~10–13 pages/s).
+- **Page size hard-capped at 100.** Page latency ~0.3–0.8 s. 8 concurrent requests completed in ~0.6–0.9 s with no errors (~10–13 pages/s) in a short burst, but a sustained load trips the WAF (HTTP 473 / 481) within ~90 s; the sustainable rate is ~2 requests/s (one at a time). The server also closes each HTTP/2 connection after 2,000 streams.
 - **No `$skip`** (500 at offset 50,000), **no `@odata.nextLink`** (unreliable), **no `$expand` for loading** (children silently capped at 100 per parent).
 - `$apply` and date functions like `year()` → **HTTP 473** (WAF). `$search` is ignored. `/$count` → 404; use `?$count=true&$top=0`.
 - Works: `$filter` (comparisons, `contains`, ISO dates), `$orderby`, `$select`, `$count=true`, `Set(Id)`.
@@ -277,7 +277,7 @@ Every notebook runs top to bottom, has parameter cells at the top, and is paired
   - **Incremental:** `LastUpdatedDate gt watermark - 48h`. Tables without it are re-walked fully.
   - **Deletes:** weekly re-walk of small tables into `raw._deleted`.
 - **Done when:**
-  - The full load takes under ~1 h.
+  - The full load takes under ~4.5 h. (Was ~1 h; changed 18 Nov 2026: the Knesset WAF tolerates only ~2 requests/s from one IP, see PROGRESS.md.)
   - Counts match the live `$count` within 0.5%.
   - A kill-and-restart resumes without duplicates.
   - An incremental run takes minutes.
