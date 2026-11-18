@@ -24,7 +24,8 @@ select
     b.committee_id,
     b.status_id,
     s.status_desc,
-    s.status_desc like 'התקבלה בקריאה שלישית%' as is_passed,
+    coalesce(s.status_desc like 'התקבלה בקריאה שלישית%' or s.status_desc = 'פורסם ברשומות', false)
+        as is_passed,
     b.publication_date,
     b.publication_series_desc,
     b.postponement_reason_desc,

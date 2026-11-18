@@ -83,10 +83,20 @@
 - `tests/test_dbt.py`: builds the project on synthetic raw rows and checks faction at vote time (incl. a vote on a membership's last day), vote counts, Israel wall-clock timestamps, Hebrew normalization, name variants, `is_passed`, session-item keys, `dim_knesset`. Found and fixed: `dim_knesset.finish_date` took the max of past periods for the current Knesset.
 - Notebook `02_marts`: row counts, dbt test results, faction-match rate (overall and per year), the real vote-result labels and bill statuses, sample analyses (bills per Knesset, top initiators, committee activity, queries per ministry, faction cohesion). Runs end to end on the synthetic marts.
 
-**Pending (on the Mac, real data)**
-1. `make dbt` — all 16 models and 48 tests; error-level tests must pass, warnings reviewed.
-2. `uv run jupytext --to ipynb --execute notebooks/02_marts.py`.
-3. Check the guesses against real values: vote-result labels (`בעד` / `נגד` / `נמנע` / `לא הצביע`) and `is_passed` (status text starting with `התקבלה בקריאה שלישית`). Then tag `phase-2`.
+**Real data (Mac, 18 Nov 2026)**
+- `make dbt`: 16 models + 48 tests in 22 s; `PASS=61 WARN=3 ERROR=0`. Notebook 02 runs headless.
+- Rows: `fct_vote_result` 1,953,822 · `fct_session_item` 249,778 · `fct_committee_session` 109,289 · `fct_bill` 60,291 · `fct_query` 42,824 · `fct_vote` 36,144 · `fct_person_position` 24,080 · `fct_agenda` 22,072 · `fct_plenum_session` 8,799 · `dim_person` 1,235 · `dim_faction` 556 · `dim_committee` 2,905 · `dim_ministry` 922 · `dim_status` 82 · `dim_knesset` 27 · `dim_item_type` 8.
+- Faction at vote time matched for 100% of vote results, every year 1982–2026. Faction cohesion in Knesset 25: 99.3–100% of for/against votes follow the faction majority.
+- The warnings, and what was done:
+  1. Vote-result labels are בעד (7), נגד (8), נמנע (9), נוכח (6, present, did not vote), הצביע (11, voted, secret ballot), לא נכח/ אינו נוכח (10). Accepted values corrected; `fct_vote.n_present` added.
+  2. 39,226 session items use item types missing from `KNS_ItemType`: 11 (28,043 items, mostly committee general topics), 9 (11,120 plenum topics), 950 (63 oral question slots). Added to `dim_item_type` with descriptions inferred from item names, flagged `is_inferred`.
+  3. 3,763 vote results reference votes missing from `KNS_PlenumVote`: a source gap; stays a warning.
+- `is_passed` now also counts status 6030 "פורסם ברשומות" (1,054 bills) besides 118 "התקבלה בקריאה שלישית" (7,752).
+- Pending: rebuild on the Mac with these fixes (expect `WARN=1`), then tag `phase-2`.
+
+**Open issues**
+- 885 bills have no `knesset_num`.
+- `dim_knesset` has 27 rows for Knessets 1–26: one extra `KnessetNum` value in `KNS_KnessetDates` to look at.
 
 ## Changes to the plan
 

@@ -48,6 +48,8 @@ models:
         description: "Item type name. | שם סוג הפריט."
       - name: source_table
         description: "OData table that item_id points to. | הטבלה שאליה מפנה item_id."
+      - name: is_inferred
+        description: "Type missing from KNS_ItemType; description inferred from item names (ids 9, 11, 950). | סוג שאינו מתועד במקור; התיאור הוסק מהנתונים."
 
   - name: dim_ministry
     description: "Government ministries. | משרדי ממשלה."
@@ -303,7 +305,7 @@ models:
       - name: status_desc
         description: "Status name. | שם הסטטוס."
       - name: is_passed
-        description: "Passed third reading (status starts with 'התקבלה בקריאה שלישית'). | עברה קריאה שלישית."
+        description: "Became law: status 'התקבלה בקריאה שלישית' or 'פורסם ברשומות'. | התקבלה בקריאה שלישית או פורסמה ברשומות."
       - name: publication_date
         description: "Publication date in Reshumot (for laws). | תאריך פרסום ברשומות."
       - name: publication_series_desc
@@ -359,6 +361,8 @@ models:
         description: "MKs voting against. | מספר נגד."
       - name: n_abstain
         description: "MKs abstaining. | מספר נמנעים."
+      - name: n_present
+        description: "MKs present who did not vote. | נוכחים שלא הצביעו."
       - name: n_results
         description: "Per-MK result rows. | מספר שורות תוצאה."
 
@@ -387,10 +391,10 @@ models:
       - name: result_code
         description: "Result code. | קוד תוצאה."
       - name: result_desc
-        description: "For, against, abstain… | בעד, נגד, נמנע…"
+        description: "בעד (for, code 7), נגד (against, 8), נמנע (abstain, 9), נוכח (present, did not vote, 6), הצביע (voted, secret ballot, 11), לא נכח/ אינו נוכח (absent, 10). | תוצאת ההצבעה של הח\"כ."
         data_tests:
           - accepted_values:
-              arguments: {values: ['בעד', 'נגד', 'נמנע', 'לא הצביע']}
+              arguments: {values: ['בעד', 'נגד', 'נמנע', 'נוכח', 'הצביע', 'לא נכח/ אינו נוכח']}
               config: {severity: warn}
       - name: plenum_session_id
         description: "Plenum session. | ישיבת המליאה."

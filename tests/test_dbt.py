@@ -201,3 +201,7 @@ def test_dbt_build(db, monkeypatch):
         (25, 2, True, None)
     ]
     assert q("select ministry_name from marts.fct_query") == [("משרד האוצר",)]
+    # Item types missing from KNS_ItemType are added and marked as inferred.
+    assert q("select item_type_id from marts.dim_item_type where is_inferred order by 1") == [
+        (9,), (11,), (950,)
+    ]
