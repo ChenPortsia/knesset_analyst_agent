@@ -171,6 +171,34 @@ def extract(
     typer.echo(", ".join(f"{k} {v:,}" for k, v in totals.most_common()) or "nothing pending")
 
 
+@app.command()
+def chunk(
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+    limit: int = typer.Option(0, help="Stop after this many documents (0: no limit)"),
+) -> None:
+    """Chunk extracted documents (new or changed text) and resolve speakers."""
+    from knesset.chunks import chunk_documents
+
+    totals = chunk_documents(parse_knessets(knessets), limit or None)
+    typer.echo(", ".join(f"{k} {v:,}" for k, v in totals.items()))
+
+
+@app.command()
+def embed(
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+    limit: int = typer.Option(0, help="Embed at most this many chunks (0: all), e.g. 1000"),
+    batch: int = typer.Option(32, help="Chunks per batch"),
+    index: bool = typer.Option(False, "--index", help="Build the HNSW index afterwards"),
+) -> None:
+    """Embed chunks with bge-m3 on the local GPU: `uv run --extra embed knesset embed`."""
+    from knesset.embed import build_index, embed_chunks
+
+    totals = embed_chunks(parse_knessets(knessets), limit or None, batch)
+    typer.echo(", ".join(f"{k} {v:,}" for k, v in totals.items()))
+    if index:
+        typer.echo(f"HNSW index built in {build_index():.0f}s")
+
+
 DBT_DIR = Path(__file__).resolve().parents[2] / "dbt"
 
 

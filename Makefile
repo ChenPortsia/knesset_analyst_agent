@@ -2,7 +2,7 @@ COMPOSE := docker compose
 export HOST_UID := $(shell id -u)
 export HOST_GID := $(shell id -g)
 
-.PHONY: up down status migrate dbt registry extract sync sync-full sync-deletes fixtures test lint fmt notebooks psql logs
+.PHONY: up down status migrate dbt registry extract chunk embed sync sync-full sync-deletes fixtures test lint fmt notebooks psql logs
 
 .env:
 	cp .env.example .env
@@ -43,6 +43,13 @@ registry:
 # Pass options with ARGS, e.g. make extract ARGS="--priority 1 --limit 50"
 extract:
 	$(COMPOSE) exec -T app knesset extract $(ARGS)
+
+# Chunking and embedding run natively (embedding needs the GPU: uv sync --extra embed).
+chunk:
+	uv run knesset chunk $(ARGS)
+
+embed:
+	uv run --extra embed knesset embed $(ARGS)
 
 test:
 	uv run pytest -q

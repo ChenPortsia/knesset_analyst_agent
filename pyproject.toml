@@ -13,11 +13,13 @@ dependencies = [
     "pydantic-settings",
     "python-docx>=1.2.0",
     "structlog",
+    "tokenizers>=0.23.3",
     "typer",
 ]
 
 [project.optional-dependencies]
-gpu = ["torch"]
+# Embedding runs natively where the GPU is: uv run --extra embed knesset embed
+embed = ["sentence-transformers", "torch"]
 
 [project.scripts]
 knesset = "knesset.cli:app"

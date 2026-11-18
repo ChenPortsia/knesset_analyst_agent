@@ -139,6 +139,27 @@
 - Chunk/embedding invalidation when a document's `content_hash` changes belongs to Phase 4 (no chunks exist yet).
 - Whether `fs.knesset.gov.il` sits behind the same WAF as the API is unknown; the client handles 473/481 either way.
 
+## Phase 4 — Chunking and embeddings 🟡 built and tested offline; real run pending (no tag yet)
+
+**Built**
+- `sql/003_chunks.sql`: `text.chunks` (PLAN §5 columns plus `speaker_role`, `speaker_confidence`, `tsv_stripped`), GIN on both tsvectors, btree on `chunk_hash` and `person_id`; `text.he_strip()`; `text.documents.chunked_hash`.
+  - Deviation from §5: `chunk_hash` is indexed, not unique. Identical text occurs in several documents (boilerplate, duplicate files); the hash is used to embed it once.
+- `chunks.py` (`knesset chunk [--knessets]`):
+  - Speaker turns from the Knesset's tags (`<< דובר >> name: << דובר >>`; topic tags `<< נושא >>` are not speakers). Protocols without tags fall back to short `name:` lines; non-protocol documents never do (bills have `הגדרות:` lines).
+  - Chunks pack whole turns up to ~500 tokens; a longer turn is split into sentence windows with ~60 tokens of overlap and its speaker line repeated in every piece. Other documents: sentence windows that keep paragraph breaks. Never mid-sentence. Contiguous `ord`. bge-m3 tokenizer (`tokenizers`, downloaded once).
+  - Speakers: dominant speaker per chunk → `dim_person` by normalized name (titles, faction in parentheses and role after a dash removed): exact variant of a person active on the session date (confidence 1.0 if also in the protocol's attendance list, else 0.9); unique variant but not active (0.6); last name unique among people present and active (0.7); else unresolved (most invitees are not in `dim_person`).
+  - Documents whose `content_hash` differs from `chunked_hash` are re-chunked (old chunks deleted in the same transaction) — the invalidation deferred from Phase 3.
+- `embed.py` (`knesset embed [--knessets] [--limit] [--batch] [--index]`, native with the `embed` extra): bge-m3 via sentence-transformers on the detected device (fp16 on mps/cuda), normalized, `max_seq_length` 1024, shortest chunks first, one commit per batch (resumable), each distinct text embedded once and copied to duplicates. `--index` builds HNSW (`halfvec_cosine_ops`) after the bulk embed.
+- Hebrew keyword search: `he_strip` removes up to 3 prefix letters while 3+ letters remain, applied to text and query alike (ובכנסת, הכנסת, כנסת → נסת), in `tsv_stripped`; plain `tsv` is kept.
+- Tests (40 total, 7 new; word count stands in for the tokenizer, a fake encoder for bge-m3): chunking of protocols/untagged/other documents, overlap, names, attendance, all resolution paths, prefix search, chunk → re-chunk → embed (shared embeddings) → HNSW → nearest neighbour.
+- Notebook `04_chunks_embeddings` (smoke-tested on test data with the vector part off).
+
+**Pending (on the Mac)**
+1. `git pull`; `make chunk` (Knessets 25–26).
+2. `make embed ARGS="--limit 1000"`: the benchmark; the full projection goes here before the backfill.
+3. `make embed ARGS="--index"`: the backfill and the HNSW index.
+4. `uv run --extra embed jupytext --to ipynb --execute notebooks/04_chunks_embeddings.py`; report the speaker match rate; tag `phase-4`.
+
 ## Changes to the plan
 
 - 18 Nov 2026, approved by the user: Phase 1 full-load target changed from < ~1 h to < ~4.5 h (WAF-limited to ~2 requests/s). PLAN.md §4 and §10 updated.

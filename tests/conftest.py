@@ -33,6 +33,7 @@ def db(monkeypatch):
         conn.execute(f"drop database if exists {TEST_DB} with (force)")
         conn.execute(f"create database {TEST_DB} owner etl")
     with psycopg.connect(f"{admin}/{TEST_DB}", autocommit=True) as conn:
+        conn.execute("create extension vector; create extension pg_trgm")
         for schema in ("raw", "ops", "text", "marts"):
             conn.execute(f"create schema {schema} authorization etl")
     monkeypatch.setenv("DB_NAME", TEST_DB)

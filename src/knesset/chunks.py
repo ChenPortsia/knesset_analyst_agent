@@ -1,0 +1,350 @@
+"""Speaker-aware chunking of document text, and speaker resolution to marts.dim_person.
+
+Protocols: the Knesset marks speakers with tags, e.g. `<< דובר >> משה כהן (הליכוד): << דובר >>`
+(tags: יור, דובר, אורח, קריאה, דובר_המשך, …); older protocols just have short lines ending
+with ':'. Chunks pack whole speaker turns up to TARGET tokens; a longer turn is split at
+sentence ends with OVERLAP tokens repeated. Other documents: paragraph windows, same sizes.
+Every chunk keeps its speaker lines, so the text reads on its own.
+"""
+
+import hashlib
+import re
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
+from datetime import datetime
+from functools import cache
+
+import psycopg
+import structlog
+
+from knesset import log as logs
+from knesset.db import connect, migrate
+
+TARGET = 500  # tokens per chunk
+OVERLAP = 60  # tokens repeated when a turn or paragraph is split
+MAX_SPEAKER_LINE = 80  # characters
+
+log = structlog.get_logger()
+
+TAGGED = re.compile(r"^<<\s*([^<>]+?)\s*>>\s*(.+?)\s*:?\s*<<\s*\1\s*>>\s*:?$")
+TOPIC_TAGS = {"נושא"}
+UNTAGGED = re.compile(rf"^[^.?!:|<>]{{2,{MAX_SPEAKER_LINE}}}:$")
+SENTENCE_END = re.compile(r"(?<=[.?!])\s+")
+TITLES = re.compile(
+    r"^(היו\"ר|יו\"ר|היושב-ראש|היושבת-ראש|השר|השרה|סגן השר|סגנית השר|שר|שרת|ח\"כ|חה\"כ|"
+    r"ד\"ר|דוקטור|עו\"ד|פרופ'|פרופסור|רו\"ח|מר|גב'|הרב|ראש הממשלה|מ\"מ היו\"ר)\s+"
+)
+ATTENDANCE_HEADINGS = ("חברי הוועדה", "חברי הכנסת", "מוזמנים", "נכחו")
+
+
+def count_tokens_bge(text: str) -> int:
+    return len(_tokenizer().encode(text, add_special_tokens=False).ids)
+
+
+@cache
+def _tokenizer():
+    from tokenizers import Tokenizer  # downloads BAAI/bge-m3's tokenizer once (cached)
+
+    return Tokenizer.from_pretrained("BAAI/bge-m3")
+
+
+# ---------------------------------------------------------------- parsing
+
+
+@dataclass
+class Turn:
+    speaker: str | None  # as written, None for the header and narration
+    role: str | None  # protocol tag, or "header" / "line"
+    lines: list[str] = field(default_factory=list)
+
+
+NOT_SPEAKERS = (
+    "סדר היום",
+    "סדר-היום",
+    "נכחו",
+    "חברי הוועדה",
+    "חברי הכנסת",
+    "מוזמנים",
+    "ייעוץ משפטי",
+    "מנהל",
+    "רישום פרלמנטרי",
+    "קצרנ",
+    "רשמ",
+    "הגדרות",
+)
+
+
+def tagged_speaker(line: str) -> tuple[str, str] | None:
+    """(role, name) for a tagged speaker line; topic tags are not speakers."""
+    if m := TAGGED.match(line):
+        role, name = m.group(1).strip(), m.group(2).strip().rstrip(":").strip()
+        return None if role in TOPIC_TAGS else (role, name)
+    return None
+
+
+def untagged_speaker(line: str) -> tuple[str, str] | None:
+    """(\"line\", name) for a short 'name:' line, as in older protocols without tags."""
+    if UNTAGGED.match(line) and len(line.split()) <= 8 and not line.startswith(NOT_SPEAKERS):
+        return "line", line.rstrip(":").strip()
+    return None
+
+
+def speaker_finder(text: str, protocol: bool) -> Callable[[str], tuple[str, str] | None] | None:
+    """Tagged speaker lines when the text has them; 'name:' lines only in protocols."""
+    lines = text.split("\n")
+    if sum(1 for line in lines if tagged_speaker(line)) >= 3:
+        return tagged_speaker
+    if protocol and sum(1 for line in lines if untagged_speaker(line)) >= 3:
+        return untagged_speaker
+    return None
+
+
+def parse_turns(text: str, find: Callable[[str], tuple[str, str] | None]) -> list[Turn]:
+    """Split a protocol into the header and speaker turns, in order."""
+    turns = [Turn(None, "header")]
+    for line in text.split("\n"):
+        if sp := find(line):
+            turns.append(Turn(sp[1], sp[0], [line]))
+        else:
+            turns[-1].lines.append(line)
+    return [t for t in turns if any(x.strip() for x in t.lines)]
+
+
+# ---------------------------------------------------------------- chunking
+
+
+@dataclass
+class Chunk:
+    text: str
+    n_tokens: int
+    speakers: list[tuple[str, str, int]]  # (name, role, tokens) per turn in the chunk
+    kind: str  # header, turns, paragraphs
+
+
+def windows(paragraphs: list[str], count: Callable[[str], int]) -> Iterator[tuple[str, int]]:
+    """Pack sentences into ~TARGET-token windows, keeping paragraph breaks, and start each
+    window with the last ~OVERLAP tokens of whole sentences of the previous one."""
+    units: list[tuple[str, int, bool]] = []  # (sentence, tokens, starts a paragraph)
+    for p in paragraphs:
+        sentences = [x for x in SENTENCE_END.split(p) if x.strip()] or [p]
+        units += [(x, count(x), k == 0) for k, x in enumerate(sentences)]
+
+    def join(part: list[tuple[str, int, bool]]) -> str:
+        out = part[0][0]
+        for text, _, new_paragraph in part[1:]:
+            out += ("\n" if new_paragraph else " ") + text
+        return out
+
+    i = 0
+    while i < len(units):
+        j, total = i, 0
+        while j < len(units) and (j == i or total + units[j][1] <= TARGET):
+            total += units[j][1]
+            j += 1
+        yield join(units[i:j]), total
+        if j >= len(units):
+            break
+        k, back = j, 0  # start the next window OVERLAP tokens back, never before i + 1
+        while k - 1 > i and back + units[k - 1][1] <= OVERLAP:
+            k -= 1
+            back += units[k][1]
+        i = k
+
+
+def chunk_text(
+    text: str, count: Callable[[str], int] = count_tokens_bge, protocol: bool = False
+) -> list[Chunk]:
+    find = speaker_finder(text, protocol)
+    if find is None:
+        paragraphs = [p for p in text.split("\n") if p.strip()]
+        return [Chunk(t, n, [], "paragraphs") for t, n in windows(paragraphs, count)]
+
+    chunks: list[Chunk] = []
+    pending: list[tuple[Turn, str, int]] = []  # whole turns waiting to fill a chunk
+
+    def flush() -> None:
+        if pending:
+            chunks.append(
+                Chunk(
+                    "\n".join(body for _, body, _ in pending),
+                    sum(n for _, _, n in pending),
+                    [(t.speaker, t.role, n) for t, _, n in pending if t.speaker],
+                    "turns",
+                )
+            )
+            pending.clear()
+
+    for turn in parse_turns(text, find):
+        lines = [x for x in turn.lines if x.strip()]
+        body = "\n".join(lines)
+        n = count(body)
+        if turn.role == "header":
+            chunks += [Chunk(t, k, [], "header") for t, k in windows(lines, count)]
+        elif n > TARGET:
+            flush()
+            head, rest = lines[0], lines[1:]  # repeat the speaker line in every piece
+            head_n = count(head)
+            for t, k in windows(rest or [head], count):
+                piece, k = (f"{head}\n{t}", k + head_n) if rest else (t, k)
+                chunks.append(Chunk(piece, k, [(turn.speaker, turn.role, k)], "turns"))
+        else:
+            if pending and sum(k for _, _, k in pending) + n > TARGET:
+                flush()
+            pending.append((turn, body, n))
+    flush()
+    return chunks
+
+
+# ---------------------------------------------------------------- speakers
+
+
+def normalize_name(name: str) -> str:
+    """Drop titles, a trailing role or faction in parentheses or after a dash, and quotes."""
+    name = re.sub(r"\(.*?\)", " ", name)
+    name = re.split(r"\s[–-]\s|,", name)[0]
+    prev = None
+    while prev != name:
+        prev, name = name, TITLES.sub("", name.strip())
+    return " ".join(name.split())
+
+
+def attendance_names(header: str) -> set[str]:
+    """Names listed after the protocol's first attendance heading (members, invitees, staff),
+    one per line, the name before a '|' or '–'."""
+    names, inside = set(), False
+    for line in (x.strip() for x in header.split("\n")):
+        if line.rstrip(":").startswith(ATTENDANCE_HEADINGS):
+            inside = True
+        elif inside and line and not line.endswith(":"):
+            names.add(normalize_name(re.split(r"\s*[|–]\s*", line)[0]))
+    return {n for n in names if n}
+
+
+@dataclass
+class People:
+    """Name variants of dim_person and the periods people held positions."""
+
+    variants: dict[str, set[int]]  # normalized variant → person ids
+    last_names: dict[str, set[int]]
+    periods: dict[int, list[tuple[datetime | None, datetime | None]]]
+
+    @classmethod
+    def load(cls, conn: psycopg.Connection) -> "People":
+        variants: dict[str, set[int]] = {}
+        last_names: dict[str, set[int]] = {}
+        for pid, names, last in conn.execute(
+            "select person_id, name_variants, last_name from marts.dim_person"
+        ):
+            for v in names:
+                variants.setdefault(normalize_name(v), set()).add(pid)
+            if last:
+                last_names.setdefault(normalize_name(last), set()).add(pid)
+        periods: dict[int, list] = {}
+        for pid, start, finish in conn.execute(
+            "select person_id, start_date, finish_date from marts.fct_person_position"
+        ):
+            periods.setdefault(pid, []).append((start, finish))
+        return cls(variants, last_names, periods)
+
+    def active(self, pid: int, when: datetime | None) -> bool:
+        if when is None:
+            return True
+        return any(
+            (s is None or s <= when) and (f is None or when.date() <= f.date())
+            for s, f in self.periods.get(pid, [])
+        )
+
+    def resolve(
+        self, name: str, when: datetime | None, present: set[str]
+    ) -> tuple[int | None, float]:
+        """Person id and confidence for a speaker name at a session date."""
+        n = normalize_name(name)
+        if not n:
+            return None, 0.0
+        exact = self.variants.get(n, set())
+        active = {p for p in exact if self.active(p, when)}
+        if len(active) == 1:
+            return next(iter(active)), 1.0 if n in present else 0.9
+        if len(exact) == 1:
+            return next(iter(exact)), 0.6
+        # last name only ("השר כהן", "כהן:"), unique among people present and active
+        last = n.split()[-1]
+        present_last = {
+            p
+            for p in self.last_names.get(last, set())
+            if self.active(p, when) and any(x.endswith(last) for x in present)
+        }
+        if len(present_last) == 1 and (len(n.split()) == 1 or n in present):
+            return next(iter(present_last)), 0.7
+        return None, 0.0
+
+
+# ---------------------------------------------------------------- storage
+
+
+def chunk_documents(
+    knessets: list[int] | None,
+    limit: int | None = None,
+    count: Callable[[str], int] = count_tokens_bge,
+) -> dict[str, int]:
+    """(Re)chunk extracted documents whose text changed since they were last chunked."""
+    migrate()
+    totals = {"docs": 0, "chunks": 0, "speaker_chunks": 0, "resolved": 0}
+    with logs.run("chunk", knessets=knessets, limit=limit) as run, connect() as conn:
+        people = People.load(conn)
+        docs = conn.execute(
+            """select doc_id, text, content_hash, doc_date,
+                      group_type like '%%פרוטוקול%%' or group_type = 'דברי הכנסת' as protocol
+               from text.documents
+               where status = 'done' and chunked_hash is distinct from content_hash
+                 and (%(k)s::int[] is null or knesset_num = any(%(k)s))
+               order by priority, knesset_num desc nulls last, doc_date desc nulls last
+               limit %(limit)s""",
+            {"k": knessets, "limit": limit},
+        ).fetchall()
+        for doc_id, text, content_hash, doc_date, protocol in docs:
+            chunks = chunk_text(text, count, bool(protocol))
+            present = attendance_names(chunks[0].text) if chunks[0].kind == "header" else set()
+            rows = []
+            for ord_, c in enumerate(chunks):
+                name, role, pid, conf = None, None, None, None
+                if c.speakers:
+                    name, role, _ = max(c.speakers, key=lambda s: s[2])
+                    pid, conf = people.resolve(name, doc_date, present)
+                    conf = conf if pid is not None else None
+                    totals["speaker_chunks"] += 1
+                    totals["resolved"] += pid is not None
+                meta = {"kind": c.kind, "speakers": sorted({s[0] for s in c.speakers})}
+                rows.append(
+                    (
+                        doc_id,
+                        ord_,
+                        c.text,
+                        c.n_tokens,
+                        hashlib.sha256(c.text.encode()).hexdigest(),
+                        name,
+                        role,
+                        pid,
+                        conf,
+                        psycopg.types.json.Jsonb(meta),
+                    )
+                )
+            with conn.transaction():
+                conn.execute("delete from text.chunks where doc_id = %s", (doc_id,))
+                with conn.cursor().copy(
+                    "copy text.chunks (doc_id, ord, text, n_tokens, chunk_hash, speaker_raw,"
+                    " speaker_role, person_id, speaker_confidence, meta) from stdin"
+                ) as copy:
+                    for row in rows:
+                        copy.write_row(row)
+                conn.execute(
+                    "update text.documents set chunked_hash = %s where doc_id = %s",
+                    (content_hash, doc_id),
+                )
+            totals["docs"] += 1
+            totals["chunks"] += len(rows)
+            if totals["docs"] % 500 == 0:
+                log.info("chunk_progress", **totals)
+        run.rows_in, run.rows_out = totals["docs"], totals["chunks"]
+        log.info("chunk_done", **totals)
+    return totals
