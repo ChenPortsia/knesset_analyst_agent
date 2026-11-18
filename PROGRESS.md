@@ -98,6 +98,27 @@
 - 885 bills have no `knesset_num`.
 - `dim_knesset` has 27 rows for Knessets 1–26: one extra `KnessetNum` value in `KNS_KnessetDates` to look at.
 
+## Phase 3 — Document text (Word only) 🟡 built and tested offline; live extraction pending (no tag yet)
+
+**Built**
+- `sql/002_text_documents.sql`: `text.documents` (PLAN §5 columns plus `source_updated`, `priority`, `group_type_id`, `detected_type`), indexes on status/priority and parent.
+- `documents.py`:
+  - **Registry** (`knesset registry`): one row per `KNS_Document*` row (7 source tables; `doc_id` = `<parent_type>:<source id>`), with Knesset, committee and date from the parent row. Selection: among files with the same name (same document, different formats) docx > doc > rtf, the rest `superseded`; a PDF is `superseded` when its parent and document type have a Word file, else `skipped_pdf`; other formats `skipped_other`. Several different Word files of one parent and type are all kept (e.g. attachments): a refinement of the plan's "per parent and document type". Priority 1 committee protocols, 2 plenum protocols (document type contains "פרוטוקול"), 3 bills, all in the scope Knessets; 4 the rest. Re-runs keep `done`/`failed` rows unless the URL or `LastUpdatedDate` changed, which resets them to `pending` with 0 attempts.
+  - **Extraction** (`knesset extract [--knessets 25,26|all] [--priority N] [--limit N]`): batches of 200 pending documents by priority, Knesset (newest first) and date. Download through the WAF-aware client; format confirmed by magic bytes (a ".doc" that is really a PDF becomes `skipped_pdf`; an HTML page is a failed attempt); .docx with python-docx (body paragraphs and tables in order); .doc/.rtf with LibreOffice headless (`txt:Text (encoded):UTF8`), `SOFFICE_WORKERS` (default 4) slots, each with its own user profile, in a temp dir always removed. Cleaning: NFC, direction marks removed, maqaf/geresh/gershayim/NBSP normalized, whitespace collapsed, page numbers and repeated short lines (5+ times; running headers and footers) dropped, speaker lines (ending with ':') kept. Stores `text`, `n_chars`, `content_hash` (sha256), `detected_type`. Max 3 attempts, each failure in `ops.failures` with its attempt number. A geo-block aborts the run.
+- `make registry`; `make extract ARGS=...` runs in the app container.
+- Tests (31 total, 6 new): cleaning, magic bytes, .docx order, a real LibreOffice .doc conversion (skipped where LibreOffice is missing, as on the CI test runner), registry selection and change detection, extraction end to end against a fake file server (404 retried → `failed` after 3 attempts, PDF disguised as .doc, no temp files left).
+- Notebook `03_documents`: status by priority/type, the ≥ 98% priority-1 check, the PDF-only gap report, failures, text quality (length, broken characters, Hebrew share), and 20 random protocols to read.
+- Fixed: the logger kept a reference to the `sys.stderr` of the moment `configure()` ran (a closed stream after a CLI test); it now looks it up on each use.
+
+**Pending (on the Mac)**
+1. `git pull`, `make up` (rebuilds the app image with python-docx).
+2. `make registry`, then `make extract ARGS="--priority 1"`, then notebook 03; read the 20 samples.
+3. Review the PDF gap with the user; tag `phase-3`.
+
+**Notes**
+- Chunk/embedding invalidation when a document's `content_hash` changes belongs to Phase 4 (no chunks exist yet).
+- Whether `fs.knesset.gov.il` sits behind the same WAF as the API is unknown; the client handles 473/481 either way.
+
 ## Changes to the plan
 
 - 18 Nov 2026, approved by the user: Phase 1 full-load target changed from < ~1 h to < ~4.5 h (WAF-limited to ~2 requests/s). PLAN.md §4 and §10 updated.

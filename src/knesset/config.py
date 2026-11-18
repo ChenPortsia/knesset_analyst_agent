@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     odata_concurrency: int = 8
 
+    soffice: str = "soffice"  # LibreOffice binary (in the app image; on macOS the .app path)
+    soffice_workers: int = 4
+
     log_dir: Path = Path("logs")
     log_retention_days: int = 90
 

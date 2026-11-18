@@ -36,7 +36,8 @@ def configure() -> None:
             _to_file,
             structlog.processors.JSONRenderer(ensure_ascii=False, default=str),
         ],
-        logger_factory=structlog.PrintLoggerFactory(sys.stderr),
+        # look up sys.stderr on each use, not once: it may be swapped (tests, notebooks)
+        logger_factory=lambda *_: structlog.PrintLogger(sys.stderr),
     )
     prune(settings().log_dir, settings().log_retention_days)
 

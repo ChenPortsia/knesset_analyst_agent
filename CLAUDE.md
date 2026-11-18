@@ -23,4 +23,6 @@ The full plan is in `PLAN.md`. Status per phase is in `PROGRESS.md`.
 - `make migrate` — apply new `sql/NNN_*.sql` (also run by `status` and `sync`)
 - `make sync` / `sync-full` / `sync-deletes` / `fixtures` — OData load; needs an Israeli IP, so run natively on the Mac
 - `make dbt` — `knesset dbt build` (marts in schema `marts`; any dbt command: `uv run knesset dbt <args>`)
+- `make registry` — rebuild `text.documents` from the synced `KNS_Document*` rows
+- `make extract ARGS="--priority 1"` — download + extract Word files in the app container (LibreOffice); needs an Israeli IP
 - `make test` (DB tests need `make up`), `make lint`, `make notebooks`

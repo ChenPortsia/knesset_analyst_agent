@@ -129,6 +129,48 @@ def record_fixtures(out: Path = Path("tests/fixtures/live")) -> None:
     asyncio.run(run())
 
 
+def parse_knessets(value: str) -> list[int] | None:
+    """'25,26' → [25, 26]; 'all' → None; '' → SCOPE_KNESSETS from .env."""
+    if value == "all":
+        return None
+    return [int(k) for k in value.split(",") if k.strip()] or settings().knessets
+
+
+@app.command()
+def registry(
+    knessets: str = typer.Option(
+        "", help="Priority Knessets, e.g. 25,26 (default: SCOPE_KNESSETS)"
+    ),
+) -> None:
+    """Rebuild text.documents from the synced KNS_Document* tables."""
+    from knesset.documents import build_registry
+
+    counts = asyncio.run(build_registry(parse_knessets(knessets) or settings().knessets))
+    for status, n in sorted(counts.items(), key=lambda x: -x[1]):
+        typer.echo(f"{status:<14}{n:>9,}")
+
+
+@app.command()
+def extract(
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+    limit: int = typer.Option(0, help="Stop after this many documents (0: no limit)"),
+    priority: int = typer.Option(
+        4,
+        help="Only priorities up to this (1 committee protocols, "
+        "2 plenum protocols, 3 bills, 4 rest)",
+    ),
+) -> None:
+    """Download and extract pending Word documents (needs an Israeli IP)."""
+    from knesset.documents import extract as run_extract
+
+    try:
+        totals = asyncio.run(run_extract(parse_knessets(knessets), limit or None, priority))
+    except odata.GeoBlockedError as e:
+        typer.echo(f"ERR  {e}. Run extract from an Israeli connection.", err=True)
+        raise typer.Exit(2) from e
+    typer.echo(", ".join(f"{k} {v:,}" for k, v in totals.most_common()) or "nothing pending")
+
+
 DBT_DIR = Path(__file__).resolve().parents[2] / "dbt"
 
 

@@ -73,14 +73,19 @@ async def sync(
     return written
 
 
-async def record_failure(run_id: str, table: str, error: BaseException) -> None:
+async def record_failure(
+    run_id: str, item: str, error: BaseException, step: str = "sync", attempt: int = 1
+) -> None:
     conn = await asyncpg.connect(settings().dsn())
     try:
         await conn.execute(
-            "insert into ops.failures (run_id, step, item_key, error) values ($1, 'sync', $2, $3)",
+            "insert into ops.failures (run_id, step, item_key, error, attempt)"
+            " values ($1, $2, $3, $4, $5)",
             run_id,
-            table,
-            repr(error),
+            step,
+            item,
+            repr(error)[:2000],
+            attempt,
         )
     finally:
         await conn.close()
