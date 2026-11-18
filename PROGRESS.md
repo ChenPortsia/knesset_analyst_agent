@@ -98,7 +98,7 @@
 - 885 bills have no `knesset_num`.
 - `dim_knesset` has 27 rows for Knessets 1–26: one extra `KnessetNum` value in `KNS_KnessetDates` to look at.
 
-## Phase 3 — Document text (Word only) 🟡 built and tested offline; live extraction pending (no tag yet)
+## Phase 3 — Document text (Word only) ✅ (tag `phase-3`)
 
 **Built**
 - `sql/002_text_documents.sql`: `text.documents` (PLAN §5 columns plus `source_updated`, `priority`, `group_type_id`, `detected_type`), indexes on status/priority and parent.
@@ -119,10 +119,16 @@
 - Fixed: plenum protocols are filed as "דברי הכנסת", not "פרוטוקול", so priority 2 was empty (they were in 4).
 - PDF gap over all Knessets: committee protocols 30,925 PDF-only parents vs 62,324 with Word (33%), plus 32,036 scanned TIF protocol files (old Knessets); see notebook 03 for the per-Knesset table.
 
-**Pending (on the Mac)**
-1. `git pull`, `make up`, `make registry` (moves plenum protocols to priority 2).
-2. `make registry`, then `make extract ARGS="--priority 1"`, then notebook 03; read the 20 samples.
-3. Review the PDF gap with the user; tag `phase-3`.
+**Acceptance**
+
+| Check | Target | Result |
+|---|---|---|
+| Priority-1 Word documents done | ≥ 98% | 9,377 / 9,377 (100%) |
+| Sample of 20 reads correctly | user check | confirmed by the user |
+| PDF gap quantified | report | notebook 03 + the table below |
+| Notebook 03 | runs headless | ✓ |
+
+**PDF gap, Knessets 25–26 (reviewed with the user, 18 Nov 2026)**: no committee or plenum protocol is PDF-only. PDF-only parents (vs with Word): committee background material 2,992 (1,017), bill texts for 1st reading 714 (0), for 2nd/3rd reading 606 (0), published laws 572 (0), ministers' answers to queries 629 (12), committee decisions 752 (644), drafts for committee discussion 678 (297), secondary-legislation filings 1,212 (45) and 724 (47), research-center documents 643 (1, out of scope §12). Bill texts after the early stage and written query answers are PDF-only. **Decision: keep "no PDFs" (§13 default) for now**; revisit in Phase 7 if the agents need bill wording or query answers.
 
 **Notes**
 - Chunk/embedding invalidation when a document's `content_hash` changes belongs to Phase 4 (no chunks exist yet).
@@ -134,4 +140,4 @@
 
 ## Decisions (PLAN §13)
 
-None changed yet; defaults apply.
+- Handle PDF-only documents? **No** (decided 18 Nov 2026 after the Phase 3 gap report; revisit in Phase 7 if bill wording or query answers are needed). Other decisions: defaults still apply.
