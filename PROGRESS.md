@@ -110,8 +110,12 @@
 - Notebook `03_documents`: status by priority/type, the ≥ 98% priority-1 check, the PDF-only gap report, failures, text quality (length, broken characters, Hebrew share), and 20 random protocols to read.
 - Fixed: the logger kept a reference to the `sys.stderr` of the moment `configure()` ran (a closed stream after a CLI test); it now looks it up on each use.
 
+**Live findings**
+- Registry on the real data (11 s): 373,934 files; 185,937 pending (Word), 86,168 skipped_pdf, 54,322 skipped_other, 47,507 superseded.
+- First trial batch: 47 of 50 downloads got **HTTP 406** because the client sent the API's `Accept: application/json`; fixed by sending `Accept: */*` for files (the fake server in the tests now answers 406 to a JSON Accept). The 47 documents keep 2 attempts.
+
 **Pending (on the Mac)**
-1. `git pull`, `make up` (rebuilds the app image with python-docx).
+1. `git pull`, `make up` (rebuilds the app image with python-docx and the fix).
 2. `make registry`, then `make extract ARGS="--priority 1"`, then notebook 03; read the 20 samples.
 3. Review the PDF gap with the user; tag `phase-3`.
 

@@ -317,7 +317,8 @@ async def extract_one(
     """Returns the outcome: done, skipped_pdf, skipped_other, retry or failed."""
     attempts = row["attempts"] + 1
     try:
-        data = (await api.fetch(row["url"])).content
+        # The client defaults to Accept: application/json; the file server answers 406 to that.
+        data = (await api.fetch(row["url"], headers={"Accept": "*/*"})).content
         kind = detect(data)
         if kind in ("pdf", "other"):
             status = "skipped_pdf" if kind == "pdf" else "skipped_other"

@@ -212,6 +212,8 @@ def test_extract_end_to_end(db, tmp_path):
 
     def handler(request: httpx.Request) -> httpx.Response:
         name = request.url.path.rsplit("/", 1)[-1]
+        if "json" in request.headers.get("accept", ""):
+            return httpx.Response(406)  # like fs.knesset.gov.il
         return httpx.Response(200, content=files[name]) if name in files else httpx.Response(404)
 
     def run(**kw):
