@@ -133,6 +133,7 @@
 **After the tag (dev scope completed)**
 - Priority 2 (plenum protocols, 25–26): 421 done. Priority 3 (bills, 25–26): 7,615 done in 26 min; 1 file 404s on the server.
 - Priority 4 in 25–26: 6,430 done in 21 min, 43 failed attempts in three groups, fixed: .docx files python-docx cannot open (broken internal references, `word/NULL`) or finds no body text in (text boxes) now fall back to LibreOffice; NUL and other control characters are removed in cleaning (Postgres rejects NUL). Rerun picks them up.
+- Rerun with the fixes: 15 more done. Left without text (28 of ≈ 23,890 Word documents in Knessets 25–26, 0.1%): 23 with no text in either python-docx or LibreOffice (scanned pages inside Word files), 3 corrupt .docx LibreOffice cannot load either, 1 file 404 on the server. They end as `failed` after their third attempt.
 
 **Notes**
 - Chunk/embedding invalidation when a document's `content_hash` changes belongs to Phase 4 (no chunks exist yet).
