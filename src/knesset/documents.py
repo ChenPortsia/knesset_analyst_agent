@@ -248,7 +248,10 @@ async def soffice_text(data: bytes, kind: str, slots: asyncio.Queue) -> str:
         slots.put_nowait(slot)
 
 
-DIRECTION_MARKS = re.compile("[‎‏‪-‮⁦-⁩﻿]")
+# direction marks and BOM, plus control characters Postgres text cannot hold (NUL) or that are noise
+DIRECTION_MARKS = re.compile(
+    "[\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff\x00-\x08\x0b\x0e-\x1f\x7f]"
+)
 PAGE_NUMBER = re.compile(r"^[-–\s]*(עמוד\s*)?\d{1,4}[-–\s]*$")
 HEBREW_PUNCT = str.maketrans({"־": "-", "׳": "'", "״": '"', "\xa0": " "})
 
@@ -267,6 +270,19 @@ def clean(text: str) -> str:
         if line or (out and out[-1]):
             out.append(line)
     return "\n".join(out).strip()
+
+
+async def to_text(data: bytes, kind: str, slots: asyncio.Queue) -> str:
+    """python-docx for .docx (fast); LibreOffice for .doc/.rtf, and for .docx files python-docx
+    cannot open (broken internal references) or finds no body text in (text boxes, shapes)."""
+    if kind == "docx":
+        try:
+            text = await asyncio.to_thread(docx_text, data)
+            if text.strip():
+                return text
+        except Exception as e:
+            log.info("docx_fallback", error=repr(e)[:200])
+    return await soffice_text(data, kind, slots)
 
 
 async def extract(
@@ -333,12 +349,7 @@ async def extract_one(
             return status
         if kind == "html":
             raise RuntimeError("got an HTML page instead of a file")
-        raw = await (
-            asyncio.to_thread(docx_text, data)
-            if kind == "docx"
-            else soffice_text(data, kind, slots)
-        )
-        text = clean(raw)
+        text = clean(await to_text(data, kind, slots))
         if not text:
             raise RuntimeError("no text extracted")
         await pool.execute(

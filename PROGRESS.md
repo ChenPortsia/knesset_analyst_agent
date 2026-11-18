@@ -130,6 +130,10 @@
 
 **PDF gap, Knessets 25–26 (reviewed with the user, 18 Nov 2026)**: no committee or plenum protocol is PDF-only. PDF-only parents (vs with Word): committee background material 2,992 (1,017), bill texts for 1st reading 714 (0), for 2nd/3rd reading 606 (0), published laws 572 (0), ministers' answers to queries 629 (12), committee decisions 752 (644), drafts for committee discussion 678 (297), secondary-legislation filings 1,212 (45) and 724 (47), research-center documents 643 (1, out of scope §12). Bill texts after the early stage and written query answers are PDF-only. **Decision: keep "no PDFs" (§13 default) for now**; revisit in Phase 7 if the agents need bill wording or query answers.
 
+**After the tag (dev scope completed)**
+- Priority 2 (plenum protocols, 25–26): 421 done. Priority 3 (bills, 25–26): 7,615 done in 26 min; 1 file 404s on the server.
+- Priority 4 in 25–26: 6,430 done in 21 min, 43 failed attempts in three groups, fixed: .docx files python-docx cannot open (broken internal references, `word/NULL`) or finds no body text in (text boxes) now fall back to LibreOffice; NUL and other control characters are removed in cleaning (Postgres rejects NUL). Rerun picks them up.
+
 **Notes**
 - Chunk/embedding invalidation when a document's `content_hash` changes belongs to Phase 4 (no chunks exist yet).
 - Whether `fs.knesset.gov.il` sits behind the same WAF as the API is unknown; the client handles 473/481 either way.

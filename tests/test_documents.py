@@ -67,6 +67,26 @@ def test_clean():
     assert "\n\n\n" not in text
 
 
+def test_clean_removes_control_characters():
+    assert (
+        d.clean("תקנות\x00 הבריאות\x07\n\x0cסעיף 1") == "תקנות הבריאות\n\nסעיף 1"
+    )  # page break → blank line
+
+
+@pytest.mark.skipif(not HAS_SOFFICE, reason="LibreOffice not installed")
+def test_docx_falls_back_to_soffice(monkeypatch):
+    def broken(data):
+        raise KeyError("There is no item named 'word/NULL' in the archive")
+
+    slots: asyncio.Queue = asyncio.Queue()
+    slots.put_nowait(0)
+    data = make_docx(["תקנות הבריאות"])
+    monkeypatch.setattr(d, "docx_text", broken)
+    assert "תקנות הבריאות" in asyncio.run(d.to_text(data, "docx", slots))
+    monkeypatch.setattr(d, "docx_text", lambda data: "  ")  # no body text (e.g. text boxes)
+    assert "תקנות הבריאות" in asyncio.run(d.to_text(data, "docx", slots))
+
+
 def test_detect():
     assert d.detect(make_docx(["x"])) == "docx"
     assert d.detect(b"\xd0\xcf\x11\xe0rest") == "doc"
