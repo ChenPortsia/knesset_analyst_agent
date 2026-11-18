@@ -64,6 +64,10 @@
 **Unverified against the live API**
 - `$count` on the Lobbyist service.
 
+## Changes to the plan
+
+- 18 Nov 2026, approved by the user: Phase 1 full-load target changed from < ~1 h to < ~4.5 h (WAF-limited to ~2 requests/s). PLAN.md §4 and §10 updated.
+
 ## Decisions (PLAN §13)
 
 None changed yet; defaults apply.

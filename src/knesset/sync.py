@@ -50,7 +50,7 @@ async def sync(
     """Sync the given entity sets (default: all). Returns rows written per table."""
     migrate()
     with logs.run("sync", tables=tables, full=full, deletes=deletes) as run:
-        async with api or OData(settings().odata_concurrency) as api, db_pool() as pool:
+        async with api or OData() as api, db_pool() as pool:
             sets = await api.metadata()
             if tables:
                 wanted = {t.lower() for t in tables}
