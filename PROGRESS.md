@@ -70,7 +70,7 @@
 - `KNS_BroadcastCommitteSession` (109k rows, no `LastUpdatedDate`) is re-walked on each incremental run; the whole incremental still took 2.5 min.
 - Deletes (`knesset sync --deletes`) are built and tested offline but not yet run live; Phase 11 schedules them weekly.
 
-## Phase 2 — dbt models 🟡 built and tested on synthetic data; real-data build pending (no tag yet)
+## Phase 2 — dbt models ✅ (tag `phase-2`)
 
 **Built**
 - `dbt/` project (dbt-core 1.12, dbt-postgres 1.11); run with `knesset dbt <args>` (`make dbt` = build), which passes the `.env` connection to `dbt/profiles.yml` and logs one `ops.runs` row. Anonymous usage stats off.
@@ -92,7 +92,7 @@
   2. 39,226 session items use item types missing from `KNS_ItemType`: 11 (28,043 items, mostly committee general topics), 9 (11,120 plenum topics), 950 (63 oral question slots). Added to `dim_item_type` with descriptions inferred from item names, flagged `is_inferred`.
   3. 3,763 vote results reference votes missing from `KNS_PlenumVote`: a source gap; stays a warning.
 - `is_passed` now also counts status 6030 "פורסם ברשומות" (1,054 bills) besides 118 "התקבלה בקריאה שלישית" (7,752).
-- Pending: rebuild on the Mac with these fixes (expect `WARN=1`), then tag `phase-2`.
+- Rebuild with the fixes: `PASS=63 WARN=1 ERROR=0` in 22 s; the one warning is the source gap in item 3.
 
 **Open issues**
 - 885 bills have no `knesset_num`.
