@@ -18,7 +18,7 @@ import structlog
 from knesset import log as logs
 from knesset.config import settings
 from knesset.db import migrate
-from knesset.odata import PAGE_SIZE, EntitySet, OData, row_id
+from knesset.odata import PAGE_SIZE, EntitySet, OData, row_id, task_requests
 
 PARTITIONS = 8
 BIG_TABLE = 100_000  # tables above this get PARTITIONS Id ranges; below it, deletes are checked
@@ -87,7 +87,8 @@ async def record_failure(run_id: str, table: str, error: BaseException) -> None:
 
 
 async def sync_table(api: OData, pool: asyncpg.Pool, es: EntitySet, full: bool = False) -> int:
-    started, requests = time.monotonic(), api.requests
+    started, requests = time.monotonic(), [0]
+    task_requests.set(requests)  # this table's task (and its partitions) only
     await ensure_table(pool, es.table)
     state, watermark = await get_state(pool, es.table)
     if full or state.get("mode") != "done":
@@ -101,7 +102,7 @@ async def sync_table(api: OData, pool: asyncpg.Pool, es: EntitySet, full: bool =
         table=es.name,
         mode=mode,
         rows=rows,
-        requests=api.requests - requests,
+        requests=requests[0],
         seconds=round(time.monotonic() - started, 1),
     )
     return rows

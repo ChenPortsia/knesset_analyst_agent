@@ -1,10 +1,12 @@
 import asyncio
+import json
 
 import psycopg
 import pytest
 from fake_odata import FakeOData, person, sample_tables
 
 from knesset import sync as sync_mod
+from knesset.config import settings
 from knesset.db import connect
 from knesset.odata import OData
 
@@ -48,6 +50,15 @@ def test_full_load(db, monkeypatch):
         f"select (watermark {il})::text, last_id from ops.sync_state where table_name='kns_person'"
     ) == [("2026-01-01 10:00:00", 250)]
     assert q("select step, status, rows_out from ops.runs") == [("sync", "ok", 261)]
+    logged = [
+        json.loads(x)
+        for f in (settings().log_dir / "sync").glob("*.jsonl")
+        for x in f.read_text().splitlines()
+    ]
+    requests = {x["table"]: x["requests"] for x in logged if x["event"] == "table_synced"}
+    # Each table's own requests: count + max_id + per partition one data page and one empty page.
+    assert requests["KNS_ItemType"] == 2 + 2
+    assert requests["KNS_Person"] == 2 + 2 * sync_mod.PARTITIONS
 
 
 def test_crash_and_resume_without_duplicates(db, monkeypatch):

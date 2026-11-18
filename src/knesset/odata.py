@@ -4,6 +4,7 @@ import asyncio
 import random
 import time
 import xml.etree.ElementTree as ET
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,6 +22,9 @@ WAF_BACKOFF = 10  # × backoff_s
 THROTTLE_COOLDOWN_S = 30  # one halving per WAF episode, not one per in-flight request
 
 log = structlog.get_logger()
+
+# Per-task request counter: set a [0] list in a task to count the requests made under it.
+task_requests: ContextVar[list[int] | None] = ContextVar("task_requests", default=None)
 
 
 class GeoBlockedError(RuntimeError):
@@ -121,6 +125,8 @@ class OData:
             try:
                 async with self.sem:
                     self.requests += 1
+                    if (counter := task_requests.get()) is not None:
+                        counter[0] += 1
                     resp = await self.client.get(url, params=params, **kw)
                 if resp.is_redirect:
                     location = resp.headers.get("location", "")

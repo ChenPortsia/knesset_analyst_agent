@@ -19,7 +19,7 @@
 # test, and a timed incremental run.
 
 # %% tags=["parameters"]
-RESUME_TABLE = "KNS_CommitteeSession"  # > 100k rows, so it is partitioned
+RESUME_TABLE = "KNS_Bill"  # ~59k rows: ~5 min at the WAF-tolerated ~2 req/s
 KILL_AFTER_S = 20
 RUN_RESUME_TEST = True
 RUN_INCREMENTAL = True

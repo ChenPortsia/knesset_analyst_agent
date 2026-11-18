@@ -53,6 +53,11 @@
 **Live findings**
 - First full load on the Mac (run `86d4e91b1dbf`, 84 s): 16 tables done, 32 failed mid-walk on **HTTP 481**, a second non-standard firewall status besides 473. Fix: 481 handled like 473 (retry, halve concurrency), firewall backoff 10 s → 120 s with 8 attempts, at most one halving per 30 s. Checkpoints kept the partial progress.
 
+- **Full load completed** (Mac, run `504e42bd30a8`, started at `ODATA_CONCURRENCY=4`, resuming the first attempt's checkpoints): **48/48 tables, 3,320,486 rows written in 4 h 21 min**, 0 failures. `KNS_PlenumVoteResult` 1,945,822 rows (§4: 1.95M).
+  - The WAF answered 481 after ~90 s at concurrency 4 (≈ 15 req/s); concurrency fell to 2, then 1 within 3 min, and stayed at 1 with no further 481s. Sustained rate ≈ 2.1 requests/s (33,627 requests), the same pace as the reference implementation. The WAF limits requests per time window, so the < 1 h target is not reachable from one IP.
+  - The server closes each HTTP/2 connection after 2,000 streams (`ConnectionTerminated last_stream_id:1999`); retried transparently, about every 5 min.
+  - Fixed: the per-table `requests` in `table_synced` counted all concurrent requests; it now counts each table's own (a context-variable counter per table task).
+  - Daily cost to watch: `KNS_BroadcastCommitteSession` (105k rows, no `LastUpdatedDate`) is re-walked on every incremental run: ~1,050 pages, ~8 min at 2 req/s.
 - Compared with the reference `zomer-g/ckan-version-tracker` (`app/services/knesset_db.py`, `knesset_http.py`): same keyset paging, 10-page batches, 48 h overlap, endpoint overrides, and the same incremental literal (`LastUpdatedDate gt <UTC>Z and Id gt X`), which runs in their production; `Id gt` filtering works on `KNS_DocumentQuery` there too. The difference is pacing: they walk one table and one request at a time (≈ 2 pages/s, ≈ 5 h for a full load) and never meet the WAF. Copied their 90 s / 20 s connect timeout. If the WAF-tolerated rate keeps the full load well above 1 h, propose relaxing that acceptance target rather than pushing concurrency.
 - `knesset_tables_meta.py` (Hebrew table descriptions) is to be copied with attribution in Phase 2, for the dbt docs and the Analyst prompt.
 
