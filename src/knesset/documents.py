@@ -128,7 +128,7 @@ classified as (
            case when knesset_num = any($1) and parent_type = 'committee_session'
                      and group_type like '%פרוטוקול%' then 1
                 when knesset_num = any($1) and parent_type = 'plenum_session'
-                     and group_type like '%פרוטוקול%' then 2
+                     and (group_type like '%פרוטוקול%' or group_type = 'דברי הכנסת') then 2
                 when knesset_num = any($1) and parent_type = 'bill' then 3
                 else 4 end as priority,
            case when file_type in ('docx', 'doc', 'rtf') and rn = 1 then 'pending'

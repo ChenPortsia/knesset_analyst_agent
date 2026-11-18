@@ -114,8 +114,13 @@
 - Registry on the real data (11 s): 373,934 files; 185,937 pending (Word), 86,168 skipped_pdf, 54,322 skipped_other, 47,507 superseded.
 - First trial batch: 47 of 50 downloads got **HTTP 406** because the client sent the API's `Accept: application/json`; fixed by sending `Accept: */*` for files (the fake server in the tests now answers 406 to a JSON Accept). The 47 documents keep 2 attempts.
 
+- Priority 1 (committee protocols, Knessets 25–26): **9,377 / 9,377 done (100%)** in 47 min (≈ 3.3 docs/s, no WAF answers); one LibreOffice timeout succeeded on the rerun. 9,376 of the ".doc" files are really .docx (python-docx path).
+- Text quality: median 53,514 chars, 1 document under 500 chars, 0 with U+FFFD, Hebrew share ≥ 0.9 in all (1.0 in 9,371). Samples read correctly: headers, attendance lists (table rows as `name | – | role`) and the Knesset's own `<< נושא >>` markup, which Phase 4 can use for speaker/topic boundaries.
+- Fixed: plenum protocols are filed as "דברי הכנסת", not "פרוטוקול", so priority 2 was empty (they were in 4).
+- PDF gap over all Knessets: committee protocols 30,925 PDF-only parents vs 62,324 with Word (33%), plus 32,036 scanned TIF protocol files (old Knessets); see notebook 03 for the per-Knesset table.
+
 **Pending (on the Mac)**
-1. `git pull`, `make up` (rebuilds the app image with python-docx and the fix).
+1. `git pull`, `make up`, `make registry` (moves plenum protocols to priority 2).
 2. `make registry`, then `make extract ARGS="--priority 1"`, then notebook 03; read the 20 samples.
 3. Review the PDF gap with the user; tag `phase-3`.
 

@@ -120,6 +120,17 @@ RAW = {
         doc_row(6, 501, PROTOCOL, "p501.pdf", "PDF"),
         doc_row(7, 501, BACKGROUND, "t.xls", "XLS"),
     ],
+    "kns_plenumsession": [{"Id": 600, "KnessetNum": 25, "StartDate": "2025-01-06T11:00:00+02:00"}],
+    "kns_documentplenumsession": [
+        {
+            "Id": 8,
+            "PlenumSessionID": 600,
+            "GroupTypeID": 1,
+            "GroupTypeDesc": "דברי הכנסת",
+            "ApplicationDesc": "DOC",
+            "FilePath": "https://fs.knesset.gov.il/25/Plenum/600.doc",
+        },
+    ],
     "kns_query": [{"Id": 77, "KnessetNum": 25, "SubmitDate": "2025-02-01T09:00:00"}],
     "kns_documentquerie": [
         {
@@ -169,9 +180,12 @@ def test_registry_selects_word_files(db):
         "committee_session:5": "pending",
         "committee_session:6": "skipped_pdf",  # PDF-only protocol
         "committee_session:7": "skipped_other",
+        "plenum_session:8": "pending",
         "query:9": "pending",  # camelCase source
     }
-    assert counts == {"superseded": 2, "pending": 4, "skipped_pdf": 1, "skipped_other": 1}
+    assert counts == {"superseded": 2, "pending": 5, "skipped_pdf": 1, "skipped_other": 1}
+    # plenum protocols are filed as "דברי הכנסת"
+    assert q("select priority from text.documents where doc_id = 'plenum_session:8'") == [(2,)]
     assert q(
         "select priority, knesset_num, committee_id, doc_date::text from text.documents"
         " where doc_id = 'committee_session:3'"
@@ -206,6 +220,7 @@ def test_extract_end_to_end(db, tmp_path):
     files = {
         "p500.docx": protocol,
         "a.docx": make_docx(["חומר רקע"]),
+        "600.doc": make_docx(["דברי הכנסת"]),  # a ".doc" that is really .docx, as on the site
         # served as .doc but really a PDF: confirmed by magic bytes
         "b.doc": to_doc(make_docx(["מסמך ישן"]), tmp_path) if HAS_SOFFICE else b"%PDF-1.4",
     }
@@ -223,7 +238,7 @@ def test_extract_end_to_end(db, tmp_path):
     before = set(Path(tempfile.gettempdir()).glob("knesset-*"))
     totals = run()
     assert totals == {
-        "done": 3 if HAS_SOFFICE else 2,
+        "done": 4 if HAS_SOFFICE else 3,
         "retry": 1,
         **({} if HAS_SOFFICE else {"skipped_pdf": 1}),
     }
