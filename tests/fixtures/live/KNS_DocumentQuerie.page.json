@@ -1,0 +1,35 @@
+[
+ {
+  "id": 221299,
+  "queryID": 478099,
+  "groupTypeID": 38,
+  "groupTypeDesc": "שאילתה",
+  "applicationID": 1,
+  "applicationDesc": "DOC",
+  "filePath": "https://fs.knesset.gov.il//19/parliamentquestion/19_pq_221299.doc",
+  "lastUpdatedDate": "2013-02-12T14:09:35.643",
+  "knS_Query": null
+ },
+ {
+  "id": 221305,
+  "queryID": 478102,
+  "groupTypeID": 38,
+  "groupTypeDesc": "שאילתה",
+  "applicationID": 1,
+  "applicationDesc": "DOC",
+  "filePath": "https://fs.knesset.gov.il//19/parliamentquestion/19_pq_221305.doc",
+  "lastUpdatedDate": "2013-02-12T14:09:38.043",
+  "knS_Query": null
+ },
+ {
+  "id": 221309,
+  "queryID": 478104,
+  "groupTypeID": 38,
+  "groupTypeDesc": "שאילתה",
+  "applicationID": 1,
+  "applicationDesc": "DOC",
+  "filePath": "https://fs.knesset.gov.il//19/parliamentquestion/19_pq_221309.doc",
+  "lastUpdatedDate": "2013-02-12T14:09:40.713",
+  "knS_Query": null
+ }
+]

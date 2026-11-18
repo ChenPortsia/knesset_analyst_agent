@@ -1,0 +1,5 @@
+{
+ "@odata.context": "https://knesset.gov.il/OdataV4/ParliamentInfo/$metadata#KNS_Person",
+ "@odata.count": 1235,
+ "value": []
+}

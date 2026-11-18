@@ -1,0 +1,44 @@
+{
+ "@odata.context": "https://knesset.gov.il/OdataV4/lobbyist/$metadata#V_Lobbyists",
+ "value": [
+  {
+   "Id": 212,
+   "IdentityNumber": "033154097",
+   "FullName": "יעל שילוני",
+   "PermitTypeValue": "שדלן קבוע",
+   "Key": 1,
+   "CorporationName": "גלעד יחסי ממשל ולובינג",
+   "IsIndependent": false,
+   "CorpNumber": "512562059",
+   "PracticeFramework": "תאגידי שדלנים",
+   "IsMemberInFaction": "",
+   "MemberInFaction": true
+  },
+  {
+   "Id": 213,
+   "IdentityNumber": "036032308",
+   "FullName": "נועה גונן טל",
+   "PermitTypeValue": "שדלן קבוע",
+   "Key": 1,
+   "CorporationName": "גורן עמיר יועצים בע\"מ ",
+   "IsIndependent": false,
+   "CorpNumber": "513152520",
+   "PracticeFramework": "תאגידי שדלנים",
+   "IsMemberInFaction": "",
+   "MemberInFaction": true
+  },
+  {
+   "Id": 221,
+   "IdentityNumber": "033641929",
+   "FullName": "תמר אברמוביץ",
+   "PermitTypeValue": "שדלן קבוע",
+   "Key": 1,
+   "CorporationName": "שדלן עצמאי",
+   "IsIndependent": true,
+   "CorpNumber": "512065194",
+   "PracticeFramework": null,
+   "IsMemberInFaction": "",
+   "MemberInFaction": true
+  }
+ ]
+}

@@ -1,0 +1,5 @@
+{
+ "@odata.context": "https://knesset.gov.il/OdataV4/lobbyist/$metadata#V_Lobbyists",
+ "@odata.count": 830,
+ "value": []
+}

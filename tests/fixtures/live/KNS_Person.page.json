@@ -1,0 +1,35 @@
+{
+ "@odata.context": "https://knesset.gov.il/OdataV4/ParliamentInfo/$metadata#KNS_Person",
+ "value": [
+  {
+   "Id": 48,
+   "LastName": "מלר-הורוביץ",
+   "FirstName": "ירדנה",
+   "GenderID": 250,
+   "GenderDesc": "נקבה",
+   "Email": null,
+   "IsCurrent": false,
+   "LastUpdatedDate": "2024-07-28T21:41:35.37+03:00"
+  },
+  {
+   "Id": 122,
+   "LastName": "פורדס",
+   "FirstName": "גיורא",
+   "GenderID": 251,
+   "GenderDesc": "זכר",
+   "Email": null,
+   "IsCurrent": false,
+   "LastUpdatedDate": "2020-03-23T23:33:55.387+02:00"
+  },
+  {
+   "Id": 128,
+   "LastName": "לב",
+   "FirstName": "דוד",
+   "GenderID": 251,
+   "GenderDesc": "זכר",
+   "Email": null,
+   "IsCurrent": false,
+   "LastUpdatedDate": "2020-03-23T23:40:56.46+02:00"
+  }
+ ]
+}
