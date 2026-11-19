@@ -126,7 +126,7 @@ def test_teach_and_classify(data):
 
 
 def test_label_session(data):
-    path = data / "labels.jsonl"
+    path = data / "eval" / "labels.jsonl"  # the folder does not exist yet, as in a fresh clone
     session = Session([25], 3, path)
     first = session.next()
     assert first["done"] == 0 and len(first["topics"]) == 3

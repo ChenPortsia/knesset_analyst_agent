@@ -92,6 +92,7 @@ class Session:
             "stance_target": (answer.get("stance_target") or "").strip() or None,
             "taxonomy_version": self.version,
         }
+        self.path.parent.mkdir(parents=True, exist_ok=True)  # eval/ is not in a fresh clone
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
         with connect() as conn:
@@ -133,6 +134,8 @@ def handler(session: Session) -> type[BaseHTTPRequestHandler]:
                     session.skip(body["chunk_id"])
             except ValueError as e:
                 return self.json({"error": str(e)}, 400)
+            except Exception as e:  # show it on the page instead of a silent hang
+                return self.json({"error": f"server error: {e!r}"}, 500)
             self.json(session.next())
 
         def log_message(self, *args: Any) -> None:  # keep the terminal quiet
