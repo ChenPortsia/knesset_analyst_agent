@@ -48,6 +48,7 @@
     - {id: 44, he: ילדים, נוער וצעירים, en: Children, youth and young adults, covers: "הוועדה לזכויות הילד, הוועדה לענייני הצעירים"}
     - {id: 45, he: שורדי שואה ואזרחים ותיקים, en: Holocaust survivors and senior citizens, covers: "הוועדה לטיפול בשורדי השואה"}
     - {id: 46, he: צמצום פערים ופריפריה חברתית, en: Social gaps and periphery, covers: "הוועדה לצמצום פערים חברתיים בפריפריה, עוני"}
+    - {id: 47, he: נפגעי פעולות איבה, נכי צה"ל ומשפחות שכולות, en: "Victims of hostilities, disabled veterans and bereaved families", covers: "חוק התגמולים לנפגעי פעולות איבה, אגף השיקום במשרד הביטחון, תגמולים, מענקים, סבסוד וסיוע לנפגעים, לפצועים ולמשפחות השכולות"}
 
 - id: 50
   he: בריאות

@@ -192,7 +192,7 @@
 - Real run (Knessets 25–26, 60 s): 491,385 chunk ↔ item links; 182,104 person and 172,520 faction entities (persons without a faction on the date are mostly ministers who are not MKs). Linked share: committee protocols 91.9%, plenum 38.6%. The plenum figure is mostly real: much of a plenum session is no-confidence motions, statements, committee changes and documents laid on the table, which are not agenda items, and a plenum session's item list is mostly bills laid on the table rather than debated.
 
 **Step 2 — topic taxonomy (draft, awaiting the user's review)**
-- `src/knesset/enrich/topics.yaml`: 9 parents, 48 topics, Hebrew + English, each noting which law classifications (`KNS_IsraelLawClassificiation`, 51 values) and committees it absorbs. `knesset topics` loads it into `text.topics` (removed topics are dropped).
+- `src/knesset/enrich/topics.yaml`: 9 parents, 49 topics (47 נפגעי פעולות איבה, נכי צה"ל ומשפחות שכולות added during hand labeling), Hebrew + English, each noting which law classifications (`KNS_IsraelLawClassificiation`, 51 values) and committees it absorbs. `knesset topics` loads it into `text.topics` (removed topics are dropped).
 
 **Topic strategy (agreed 19 Nov 2026): budget ≈ $10 for all topic labeling**
 - Instead of the LLM labeling topics on every chunk (plan §10 step 3), Claude Haiku 5.5 labels a stratified *teaching sample* (benchmark 500, then ≈ 25k, plus ≈ 10k for weak topics), and a classifier on the existing bge-m3 embeddings labels every chunk for free. Discovered clusters per period (emerging issues) are named with one LLM call per cluster. Keywords come free from word statistics. Stance, speech act and summaries per chunk get their own budget decision later.
