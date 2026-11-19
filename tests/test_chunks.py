@@ -99,6 +99,7 @@ def test_resolve_speakers():
             "משה כהן": {3, 4},
             "יצחק רבין": {5},
             "איתמר בן גביר": {6},
+            "יצחק וסרלאוף": {7},
         },
         names={
             1: ("דוד", "ביטן"),
@@ -107,6 +108,7 @@ def test_resolve_speakers():
             4: ("משה", "כהן"),
             5: ("יצחק", "רבין"),
             6: ("איתמר", "בן גביר"),
+            7: ("יצחק", "וסרלאוף"),
         },
         periods={
             1: [(datetime(2022, 11, 15), None)],
@@ -115,6 +117,7 @@ def test_resolve_speakers():
             4: [(datetime(2021, 1, 1), None)],
             5: [(datetime(1992, 7, 13), datetime(1995, 11, 4))],
             6: [(datetime(2022, 11, 15), None)],
+            7: [(datetime(2022, 11, 15), None)],
         },
     )
     present = {"דוד ביטן", "אלון שוסטר"}
@@ -127,6 +130,8 @@ def test_resolve_speakers():
     # a minister's full title around the name
     assert people.resolve("השר לביטחון לאומי איתמר בן גביר", when, present) == (6, 0.8)
     assert people.resolve("שר הבריאות משה כהן", when, present) == (None, 0.0)  # ambiguous
+    title = "שר הנגב, הגליל והחוסן הלאומי יצחק שמעון וסרלאוף"  # a comma inside the title
+    assert people.resolve(title, when, present) == (7, 0.8)
 
 
 # ---------------------------------------------------------------- database

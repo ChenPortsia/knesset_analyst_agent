@@ -139,7 +139,7 @@
 - Chunk/embedding invalidation when a document's `content_hash` changes belongs to Phase 4 (no chunks exist yet).
 - Whether `fs.knesset.gov.il` sits behind the same WAF as the API is unknown; the client handles 473/481 either way.
 
-## Phase 4 — Chunking and embeddings 🟡 built and tested offline; real run pending (no tag yet)
+## Phase 4 — Chunking and embeddings ✅ (tag `phase-4`)
 
 **Built**
 - `sql/003_chunks.sql`: `text.chunks` (PLAN §5 columns plus `speaker_role`, `speaker_confidence`, `tsv_stripped`), GIN on both tsvectors, btree on `chunk_hash` and `person_id`; `text.he_strip()`; `text.documents.chunked_hash`.
@@ -162,11 +162,23 @@
 - Speaker resolution moved to its own step (`knesset speakers`, also run by `knesset chunk` for new documents): it updates `person_id` / `speaker_confidence` in place, so better matching never re-chunks or loses embeddings.
 - HNSW build failed with `DiskFull: could not resize shared memory segment`: Docker gives the db container 64 MB of `/dev/shm`, and a parallel build needs a segment of `maintenance_work_mem` (was 2 GB). Fixed: `shm_size: 2gb` on the db service, `maintenance_work_mem` 1 GB.
 
-**Pending (on the Mac)**
-1. `git pull`; `make chunk` (Knessets 25–26) — done.
-2. `make embed ARGS="--limit 1000"`: the benchmark; the full projection goes here before the backfill.
-3. `make embed ARGS="--index"`: the backfill and the HNSW index.
-4. `uv run --extra embed jupytext --to ipynb --execute notebooks/04_chunks_embeddings.py`; report the speaker match rate; tag `phase-4`.
+**Acceptance (Knessets 25–26, measured on the Mac 18–19 Nov 2026)**
+
+| Check | Result |
+|---|---|
+| Priority-1 chunks embedded | 455,138 / 455,138 (100%); all 650,985 chunks embedded (overnight on mps, ≈ 13 chunks/s over the full backfill), HNSW in 728 s |
+| Speaker match rate reported | by tag: יור 92.5%, דובר 67.0%, דובר_המשך 59.8%, קריאה 46.2% (incl. anonymous calls), אורח 2.7% (invitees, mostly not in `dim_person`); confidence 1.0: 46,818 chunks, 0.9: 109,796, 0.8: 16,666, 0.7: 4,139, 0.6: 2,583 |
+| Notebook 04 | runs headless |
+
+- Chunks: 494,783 speaker-turn, 114,121 paragraph, 42,081 header; median 488 / 466 / 483 tokens; 610,375 distinct texts.
+- Keyword hits plain → prefix-stripped: מכסות לייבוא דבש 6 → 17, יוקר המחיה 3,407 → 4,976, החטופים בעזה 3,831 → 7,958, רפורמה משפטית 299 → 1,855.
+- Vector search finds the relevant debates (beekeepers' protocol for the honey quota, hostage families' testimony); keyword ranking often puts attendance-list header chunks first; hybrid (RRF) balances the two.
+- After the notebook: `<< מנהל >>` (a chair-change note) and `שאילתה` are structural tags too; titles with a comma ("שר הנגב, הגליל והחוסן הלאומי …") now match on the whole string. Run `make speakers` to apply (no re-chunking).
+
+**Open issues**
+- A few chunks exceed the target: max 22,315 tokens, where a "sentence" has no sentence end (long tables or lists). bge-m3 reads the first 1,024 tokens of those; the rest is keyword-searchable only. Fix: split over-long sentences by words, then re-chunk just those documents.
+- Many unresolved `דובר` speakers are committee legal advisors and officials (e.g. legal advisor ד"ר עידית חנוכה), and most guests are invitees: not in `dim_person`. A staff/guest list would be a later addition.
+- Header chunks rank high in keyword search; Phase 6 search should down-weight or filter them.
 
 ## Changes to the plan
 

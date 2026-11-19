@@ -28,8 +28,8 @@ MAX_SPEAKER_LINE = 80  # characters
 log = structlog.get_logger()
 
 TAGGED = re.compile(r"^<<\s*([^<>]+?)\s*>>\s*(.+?)\s*:?\s*<<\s*\1\s*>>\s*:?$")
-# Tags that mark structure, not a speaker: topic, vote, break, end, …
-STRUCTURAL_TAGS = {"נושא", "הצח", "הפסקה", "סיום", "הלסי", "אחרי_כן"}
+# Tags that mark structure, not a speaker: topic, vote, break, end, chair change, …
+STRUCTURAL_TAGS = {"נושא", "הצח", "הפסקה", "סיום", "הלסי", "אחרי_כן", "מנהל", "שאילתה"}
 ANONYMOUS = {"קריאה", "קריאות"}  # a call from the floor, no name
 UNTAGGED = re.compile(rf"^[^.?!:|<>]{{2,{MAX_SPEAKER_LINE}}}:$")
 SENTENCE_END = re.compile(r"(?<=[.?!])\s+")
@@ -277,8 +277,10 @@ class People:
             return next(iter(active)), 1.0 if n in present else 0.9
         if len(exact) == 1:
             return next(iter(exact)), 0.6
-        # full first and last name inside a longer title ("השר לביטחון לאומי איתמר בן גביר")
-        words, padded = n.split(), f" {n} "
+        # full first and last name inside a longer title ("השר לביטחון לאומי איתמר בן גביר");
+        # the whole string, since titles may contain commas ("שר הנגב, הגליל והחוסן …")
+        whole = " ".join(re.sub(r"\(.*?\)", " ", name).replace(",", " ").split())
+        words, padded = whole.split(), f" {whole} "
         titled = {
             p
             for w in set(words)
