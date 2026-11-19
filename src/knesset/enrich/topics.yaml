@@ -8,92 +8,92 @@
   he: משפט, חוקה וממשל
   en: Law, constitution and government
   topics:
-    - {id: 11, he: חוקה וחוקי יסוד, en: Constitution and Basic Laws, covers: "חוק-יסוד, ראשי המדינה"}
-    - {id: 12, he: מערכת המשפט ובתי המשפט, en: Judiciary and courts, covers: "ערכאות שיפוטיות, משפט מינהלי, ראיות וסדרי דין; הרפורמה המשפטית, היועמ\"ש"}
-    - {id: 13, he: משפט פלילי ואכיפה, en: Criminal law and law enforcement, covers: "משפט פלילי"}
-    - {id: 14, he: משפט אזרחי ומעמד אישי, en: Civil law and personal status, covers: "משפט אזרחי, מעמד אישי"}
-    - {id: 15, he: בחירות, כנסת ומפלגות, en: Elections, the Knesset and parties, covers: "בחירות, כנסת; ועדת הכנסת, ועדת האתיקה, הוועדה המסדרת"}
-    - {id: 16, he: ממשל, שירות הציבור וביקורת המדינה, en: Government, civil service and state audit, covers: "שירות הציבור; הוועדה לענייני ביקורת המדינה, הסרת חסמים"}
-    - {id: 17, he: נוהל פרלמנטרי, en: Parliamentary procedure, covers: "חילופים בוועדות, הודעות, מסמכים שהונחו, הצבעות פרוצדורליות"}
+    - {id: 11, he: "חוקה וחוקי יסוד", en: "Constitution and Basic Laws", covers: "חוק-יסוד, ראשי המדינה"}
+    - {id: 12, he: "מערכת המשפט ובתי המשפט", en: "Judiciary and courts", covers: "ערכאות שיפוטיות, משפט מינהלי, ראיות וסדרי דין; הרפורמה המשפטית, היועמ\"ש"}
+    - {id: 13, he: "משפט פלילי ואכיפה", en: "Criminal law and law enforcement", covers: "משפט פלילי"}
+    - {id: 14, he: "משפט אזרחי ומעמד אישי", en: "Civil law and personal status", covers: "משפט אזרחי, מעמד אישי"}
+    - {id: 15, he: "בחירות, כנסת ומפלגות", en: "Elections, the Knesset and parties", covers: "בחירות, כנסת; ועדת הכנסת, ועדת האתיקה, הוועדה המסדרת"}
+    - {id: 16, he: "ממשל, שירות הציבור וביקורת המדינה", en: "Government, civil service and state audit", covers: "שירות הציבור; הוועדה לענייני ביקורת המדינה, הסרת חסמים"}
+    - {id: 17, he: "נוהל פרלמנטרי", en: "Parliamentary procedure", covers: "חילופים בוועדות, הודעות, מסמכים שהונחו, הצבעות פרוצדורליות"}
 
 - id: 20
   he: ביטחון ויחסי חוץ
   en: Security and foreign affairs
   topics:
-    - {id: 21, he: ביטחון וצה"ל, en: Defense and the IDF, covers: "ביטחון; ועדת החוץ והביטחון, משאבי אנוש בצה\"ל; גיוס ושירות ביטחון"}
-    - {id: 22, he: המלחמה, החטופים ומצבי חירום, en: The war, hostages and emergencies, covers: "מצב חירום; חרבות ברזל, החטופים, המפונים, העורף"}
-    - {id: 23, he: ביטחון פנים ומשטרה, en: Internal security and police, covers: "ביטחון הפנים; הוועדה לביטחון לאומי"}
-    - {id: 24, he: יחסי חוץ והסברה, en: Foreign relations and public diplomacy, covers: "חוץ; מדיניות חוץ והסברה, יחסי חוץ וקשרי מסחר"}
-    - {id: 25, he: יהודה ושומרון וההתיישבות, en: Judea and Samaria and settlement, covers: "ועדת המשנה לענייני איו\"ש"}
+    - {id: 21, he: "ביטחון וצה\"ל", en: "Defense and the IDF", covers: "ביטחון; ועדת החוץ והביטחון, משאבי אנוש בצה\"ל; גיוס ושירות ביטחון"}
+    - {id: 22, he: "המלחמה, החטופים ומצבי חירום", en: "The war, hostages and emergencies", covers: "מצב חירום; חרבות ברזל, החטופים, המפונים, העורף"}
+    - {id: 23, he: "ביטחון פנים ומשטרה", en: "Internal security and police", covers: "ביטחון הפנים; הוועדה לביטחון לאומי"}
+    - {id: 24, he: "יחסי חוץ והסברה", en: "Foreign relations and public diplomacy", covers: "חוץ; מדיניות חוץ והסברה, יחסי חוץ וקשרי מסחר"}
+    - {id: 25, he: "יהודה ושומרון וההתיישבות", en: "Judea and Samaria and settlement", covers: "ועדת המשנה לענייני איו\"ש"}
 
 - id: 30
   he: כלכלה ותקציב
   en: Economy and budget
   topics:
-    - {id: 31, he: תקציב המדינה, en: State budget, covers: "תקציב, חוקי הסדרים, מילווה למדינה; ועדת הכספים"}
-    - {id: 32, he: מיסוי, en: Taxation, covers: "מיסוי"}
-    - {id: 33, he: יוקר המחיה וצרכנות, en: Cost of living and consumer protection, covers: "צרכנות"}
-    - {id: 34, he: בנקאות, שוק ההון, ביטוח ופנסיה, en: "Banking, capital markets, insurance and pensions", covers: "בנקאות וכספים, פנסיה, ביטוח ושוק ההון"}
-    - {id: 35, he: מסחר, תעשייה ותאגידים, en: Trade, industry and companies, covers: "מסחר ותעשייה, תאגידים, פיתוח והשקעות; הוועדה למיזמים ציבוריים, הקרן לאזרחי ישראל"}
-    - {id: 36, he: חקלאות ומים, en: Agriculture and water, covers: "חקלאות; מנופי צמיחה בחקלאות, הפיקוח על משק המים"}
-    - {id: 37, he: תיירות, en: Tourism, covers: "תיירות"}
+    - {id: 31, he: "תקציב המדינה", en: "State budget", covers: "תקציב, חוקי הסדרים, מילווה למדינה; ועדת הכספים"}
+    - {id: 32, he: "מיסוי", en: "Taxation", covers: "מיסוי"}
+    - {id: 33, he: "יוקר המחיה וצרכנות", en: "Cost of living and consumer protection", covers: "צרכנות"}
+    - {id: 34, he: "בנקאות, שוק ההון, ביטוח ופנסיה", en: "Banking, capital markets, insurance and pensions", covers: "בנקאות וכספים, פנסיה, ביטוח ושוק ההון"}
+    - {id: 35, he: "מסחר, תעשייה ותאגידים", en: "Trade, industry and companies", covers: "מסחר ותעשייה, תאגידים, פיתוח והשקעות; הוועדה למיזמים ציבוריים, הקרן לאזרחי ישראל"}
+    - {id: 36, he: "חקלאות ומים", en: "Agriculture and water", covers: "חקלאות; מנופי צמיחה בחקלאות, הפיקוח על משק המים"}
+    - {id: 37, he: "תיירות", en: "Tourism", covers: "תיירות"}
 
 - id: 40
   he: רווחה ועבודה
   en: Welfare and labor
   topics:
-    - {id: 41, he: רווחה וביטוח לאומי, en: Welfare and social security, covers: "רווחה; ועדת העבודה והרווחה"}
-    - {id: 42, he: תעסוקה וזכויות עובדים, en: Employment and workers' rights, covers: "תעסוקה"}
-    - {id: 43, he: עובדים זרים, en: Foreign workers, covers: "הוועדה המיוחדת לעובדים זרים"}
-    - {id: 44, he: ילדים, נוער וצעירים, en: Children, youth and young adults, covers: "הוועדה לזכויות הילד, הוועדה לענייני הצעירים"}
-    - {id: 45, he: שורדי שואה ואזרחים ותיקים, en: Holocaust survivors and senior citizens, covers: "הוועדה לטיפול בשורדי השואה"}
-    - {id: 46, he: צמצום פערים ופריפריה חברתית, en: Social gaps and periphery, covers: "הוועדה לצמצום פערים חברתיים בפריפריה, עוני"}
-    - {id: 47, he: נפגעי פעולות איבה, נכי צה"ל ומשפחות שכולות, en: "Victims of hostilities, disabled veterans and bereaved families", covers: "חוק התגמולים לנפגעי פעולות איבה, אגף השיקום במשרד הביטחון, תגמולים, מענקים, סבסוד וסיוע לנפגעים, לפצועים ולמשפחות השכולות"}
+    - {id: 41, he: "רווחה וביטוח לאומי", en: "Welfare and social security", covers: "רווחה; ועדת העבודה והרווחה"}
+    - {id: 42, he: "תעסוקה וזכויות עובדים", en: "Employment and workers' rights", covers: "תעסוקה"}
+    - {id: 43, he: "עובדים זרים", en: "Foreign workers", covers: "הוועדה המיוחדת לעובדים זרים"}
+    - {id: 44, he: "ילדים, נוער וצעירים", en: "Children, youth and young adults", covers: "הוועדה לזכויות הילד, הוועדה לענייני הצעירים"}
+    - {id: 45, he: "שורדי שואה ואזרחים ותיקים", en: "Holocaust survivors and senior citizens", covers: "הוועדה לטיפול בשורדי השואה"}
+    - {id: 46, he: "צמצום פערים ופריפריה חברתית", en: "Social gaps and periphery", covers: "הוועדה לצמצום פערים חברתיים בפריפריה, עוני"}
+    - {id: 47, he: "נפגעי פעולות איבה, נכי צה\"ל ומשפחות שכולות", en: "Victims of hostilities, disabled veterans and bereaved families", covers: "חוק התגמולים לנפגעי פעולות איבה, אגף השיקום במשרד הביטחון, תגמולים, מענקים, סבסוד וסיוע לנפגעים, לפצועים ולמשפחות השכולות"}
 
 - id: 50
   he: בריאות
   en: Health
   topics:
-    - {id: 51, he: מערכת הבריאות, en: The health system, covers: "בריאות; ועדת הבריאות"}
-    - {id: 52, he: מקצועות הבריאות, en: Health professions, covers: "מקצועות הבריאות"}
-    - {id: 53, he: בריאות הנפש והתמכרויות, en: Mental health and addiction, covers: "הוועדה למאבק בשימוש בסמים ובאלכוהול; טראומה וחוסן"}
+    - {id: 51, he: "מערכת הבריאות", en: "The health system", covers: "בריאות; ועדת הבריאות"}
+    - {id: 52, he: "מקצועות הבריאות", en: "Health professions", covers: "מקצועות הבריאות"}
+    - {id: 53, he: "בריאות הנפש והתמכרויות", en: "Mental health and addiction", covers: "הוועדה למאבק בשימוש בסמים ובאלכוהול; טראומה וחוסן"}
 
 - id: 60
   he: חינוך, תרבות, מדע וספורט
   en: Education, culture, science and sport
   topics:
-    - {id: 61, he: חינוך, en: Education, covers: "חינוך; ועדת החינוך, תוכניות הלימודים במזרח ירושלים"}
-    - {id: 62, he: השכלה גבוהה ומדע, en: Higher education and science, covers: "מדע; ועדת המדע והטכנולוגיה"}
-    - {id: 63, he: תרבות ומורשת, en: Culture and heritage, covers: "תרבות"}
-    - {id: 64, he: ספורט, en: Sport, covers: "ספורט; ועדת המשנה לספורט"}
+    - {id: 61, he: "חינוך", en: "Education", covers: "חינוך; ועדת החינוך, תוכניות הלימודים במזרח ירושלים"}
+    - {id: 62, he: "השכלה גבוהה ומדע", en: "Higher education and science", covers: "מדע; ועדת המדע והטכנולוגיה"}
+    - {id: 63, he: "תרבות ומורשת", en: "Culture and heritage", covers: "תרבות"}
+    - {id: 64, he: "ספורט", en: "Sport", covers: "ספורט; ועדת המשנה לספורט"}
 
 - id: 70
   he: פנים, שלטון מקומי וסביבה
   en: Interior, local government and environment
   topics:
-    - {id: 71, he: רשויות מקומיות, en: Local authorities, covers: "רשויות מקומיות; ועדת הפנים"}
-    - {id: 72, he: תכנון, בנייה ומקרקעין, en: Planning, construction and land, covers: "תכנון ובנייה, מקרקעין, ניהול נכסים"}
-    - {id: 73, he: דיור, en: Housing, covers: "בינוי ושיכון; סיוע בדיור ודיור ציבורי"}
-    - {id: 74, he: הגנת הסביבה, en: Environmental protection, covers: "הגנת הסביבה"}
-    - {id: 75, he: נגב, גליל ויישובי הגבול, en: Negev, Galilee and border communities, covers: "הוועדה לחיזוק ופיתוח הנגב והגליל, היישובים בגבול המזרחי"}
+    - {id: 71, he: "רשויות מקומיות", en: "Local authorities", covers: "רשויות מקומיות; ועדת הפנים"}
+    - {id: 72, he: "תכנון, בנייה ומקרקעין", en: "Planning, construction and land", covers: "תכנון ובנייה, מקרקעין, ניהול נכסים"}
+    - {id: 73, he: "דיור", en: "Housing", covers: "בינוי ושיכון; סיוע בדיור ודיור ציבורי"}
+    - {id: 74, he: "הגנת הסביבה", en: "Environmental protection", covers: "הגנת הסביבה"}
+    - {id: 75, he: "נגב, גליל ויישובי הגבול", en: "Negev, Galilee and border communities", covers: "הוועדה לחיזוק ופיתוח הנגב והגליל, היישובים בגבול המזרחי"}
 
 - id: 80
   he: תשתיות, תחבורה ותקשורת
   en: Infrastructure, transport and communications
   topics:
-    - {id: 81, he: תחבורה ובטיחות בדרכים, en: Transport and road safety, covers: "תחבורה ובטיחות בדרכים"}
-    - {id: 82, he: תשתיות ואנרגיה, en: Infrastructure and energy, covers: "תשתיות"}
-    - {id: 83, he: תעופה וספנות, en: Aviation and shipping, covers: "תעופה, ספנות"}
-    - {id: 84, he: תקשורת ושידורים, en: Communications and broadcasting, covers: "תקשורת; הוועדה לחוק התקשורת (שידורים)"}
-    - {id: 85, he: טכנולוגיה, סייבר ובינה מלאכותית, en: "Technology, cyber and AI", covers: "טכנולוגיה וסייבר; בינה מלאכותית, אמצעי זיהוי ביומטריים"}
+    - {id: 81, he: "תחבורה ובטיחות בדרכים", en: "Transport and road safety", covers: "תחבורה ובטיחות בדרכים"}
+    - {id: 82, he: "תשתיות ואנרגיה", en: "Infrastructure and energy", covers: "תשתיות"}
+    - {id: 83, he: "תעופה וספנות", en: "Aviation and shipping", covers: "תעופה, ספנות"}
+    - {id: 84, he: "תקשורת ושידורים", en: "Communications and broadcasting", covers: "תקשורת; הוועדה לחוק התקשורת (שידורים)"}
+    - {id: 85, he: "טכנולוגיה, סייבר ובינה מלאכותית", en: "Technology, cyber and AI", covers: "טכנולוגיה וסייבר; בינה מלאכותית, אמצעי זיהוי ביומטריים"}
 
 - id: 90
   he: חברה, דת ושוויון
   en: Society, religion and equality
   topics:
-    - {id: 91, he: דת ומדינה, en: Religion and state, covers: "דתות, מועדים; כשרות, שבת, נישואין וגיור"}
-    - {id: 92, he: מעמד האישה ושוויון מגדרי, en: Status of women and gender equality, covers: "הוועדה לקידום מעמד האישה ולשוויון מגדרי"}
-    - {id: 93, he: עלייה, קליטה ותפוצות, en: Immigration, absorption and the diaspora, covers: "קליטת עלייה; ועדת העלייה, הקליטה והתפוצות"}
-    - {id: 94, he: אזרחות, הגירה וכניסה לישראל, en: Citizenship, migration and entry to Israel, covers: "אזרחות, תושבות וכניסה לישראל"}
-    - {id: 95, he: החברה הערבית, en: Arab society, covers: "פשיעה בחברה הערבית, תכניות סיוע, שוויון"}
-    - {id: 96, he: פניות ציבור וזכויות האזרח, en: Public complaints and civil rights, covers: "הוועדה לפניות הציבור"}
+    - {id: 91, he: "דת ומדינה", en: "Religion and state", covers: "דתות, מועדים; כשרות, שבת, נישואין וגיור"}
+    - {id: 92, he: "מעמד האישה ושוויון מגדרי", en: "Status of women and gender equality", covers: "הוועדה לקידום מעמד האישה ולשוויון מגדרי"}
+    - {id: 93, he: "עלייה, קליטה ותפוצות", en: "Immigration, absorption and the diaspora", covers: "קליטת עלייה; ועדת העלייה, הקליטה והתפוצות"}
+    - {id: 94, he: "אזרחות, הגירה וכניסה לישראל", en: "Citizenship, migration and entry to Israel", covers: "אזרחות, תושבות וכניסה לישראל"}
+    - {id: 95, he: "החברה הערבית", en: "Arab society", covers: "פשיעה בחברה הערבית, תכניות סיוע, שוויון"}
+    - {id: 96, he: "פניות ציבור וזכויות האזרח", en: "Public complaints and civil rights", covers: "הוועדה לפניות הציבור"}

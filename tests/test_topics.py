@@ -9,6 +9,9 @@ def test_taxonomy_file_is_valid():
     assert 30 <= len(children) <= 60  # PLAN: ~30-60 topics in two levels
     assert all(r["parent_id"] in parents for r in children)
     assert all(r["name_he"] and r["name_en"] for r in rows)
+    names = {r["topic_id"]: r["name_he"] for r in rows}
+    assert names[15] == "בחירות, כנסת ומפלגות"  # commas inside names survive
+    assert names[47] == 'נפגעי פעולות איבה, נכי צה"ל ומשפחות שכולות'
 
 
 def test_load_topics(db, tmp_path):

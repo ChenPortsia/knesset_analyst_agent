@@ -23,6 +23,8 @@ def read_taxonomy(path: Path = TAXONOMY) -> list[dict]:
             }
         )
         for t in parent["topics"]:
+            if set(t) - {"id", "he", "en", "covers"}:  # an unquoted comma split a name
+                raise ValueError(f"topic {t.get('id')}: quote names that contain commas")
             rows.append(
                 {
                     "topic_id": t["id"],
