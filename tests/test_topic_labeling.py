@@ -1,13 +1,16 @@
 import json
 import re
+import threading
+from http.server import ThreadingHTTPServer
 from types import SimpleNamespace as NS
+from urllib.request import Request, urlopen
 
 import numpy as np
 import pytest
 
 from knesset.db import connect
 from knesset.enrich import llm, topic_clf, topics_llm
-from knesset.enrich.label import label
+from knesset.enrich.label import Session, handler
 from knesset.enrich.topics import load_topics
 
 TOPICS = [11, 12, 21]
@@ -122,14 +125,44 @@ def test_teach_and_classify(data):
     assert q("select distinct topics_model from text.chunk_enrichment") == [("knn@bge-m3",)]
 
 
-def test_label_tool(data):
-    answers = iter(["?", "99", "11,21", "+", "f", "חוק הגיוס", "s", "12", "0", "", "q"])
+def test_label_session(data):
     path = data / "labels.jsonl"
-    assert label([25], 5, ask=lambda _: next(answers), say=lambda _: None, path=path) == 2
-    rows = [json.loads(line) for line in path.read_text().splitlines()]
-    assert rows[0]["topics"] == [11, 21] and rows[0]["stance"] == "for"
-    assert rows[0]["stance_target"] == "חוק הגיוס" and rows[1]["sentiment"] == "neutral"
-    assert q("select count(*) from text.topic_labels where source = 'user'") == [(2,)]
-    # restarting continues: the two labeled chunks are not shown again
-    more = iter(["21", "-", "", "q"])
-    assert label([25], 5, ask=lambda _: next(more), say=lambda _: None, path=path) == 3
+    session = Session([25], 3, path)
+    first = session.next()
+    assert first["done"] == 0 and len(first["topics"]) == 3
+    chunk_id = first["chunk"]["chunk_id"]
+    with pytest.raises(ValueError):
+        session.save({"chunk_id": chunk_id, "topics": []})  # at least one topic
+    session.save(
+        {
+            "chunk_id": chunk_id,
+            "topics": [12, 21, 99],
+            "main": 21,
+            "issue": " רישוי יבוא רחפנים ",
+            "sentiment": "neutral",
+        }
+    )
+    row = json.loads(path.read_text().splitlines()[0])
+    assert row["topics"] == [21, 12] and row["main_topic"] == 21  # main first, 99 dropped
+    assert row["issue"] == "רישוי יבוא רחפנים" and row["stance"] is None
+    second = session.next()["chunk"]["chunk_id"]
+    session.skip(second)
+    assert session.next()["chunk"]["chunk_id"] not in (chunk_id, second)
+    assert q("select topics from text.topic_labels where source = 'user'") == [([21, 12],)]
+    # a new session continues: the saved chunk is not offered again
+    assert Session([25], 3, path).next()["done"] == 1
+
+
+def test_label_server(data):
+    session = Session([25], 2, data / "labels.jsonl")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler(session))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        assert "תיוג קטעים" in urlopen(url).read().decode()
+        state = json.loads(urlopen(f"{url}/api/next").read())
+        body = json.dumps({"chunk_id": state["chunk"]["chunk_id"], "topics": [11]}).encode()
+        after = json.loads(urlopen(Request(f"{url}/api/save", data=body, method="POST")).read())
+        assert after["done"] == 1
+    finally:
+        server.shutdown()

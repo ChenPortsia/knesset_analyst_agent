@@ -218,10 +218,10 @@ def label(
     knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
     n: int = typer.Option(150, help="Size of the hand-labeled gold set"),
 ) -> None:
-    """Hand-label chunks (topics, sentiment, stance) into eval/labeled_chunks.jsonl."""
-    from knesset.enrich.label import label as run_label
+    """Hand-label chunks on a local page (http://localhost:8765) into eval/labeled_chunks.jsonl."""
+    from knesset.enrich.label import serve
 
-    typer.echo(f"{run_label(parse_knessets(knessets), n)} chunks labeled")
+    serve(parse_knessets(knessets), n)
 
 
 @app.command("topics-teach")

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knesset labeling</title>
+<style>
+  :root { --bg: #fafaf8; --fg: #1d1d1b; --muted: #6b6b66; --line: #ddd9cf; --accent: #2f5d8a;
+          --card: #fff; --pick: #e7eef6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1c1e; --fg: #e8e6e1; --muted: #9a978f; --line: #3a3b3e; --accent: #8fb6dc;
+            --card: #232427; --pick: #2c3a48; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
+  main { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px;
+         max-width: 1400px; margin: 0 auto; padding: 16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+           max-width: 1400px; margin: 0 auto; padding: 12px 16px 0; color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 16px; }
+  #text { white-space: pre-wrap; font-size: 17px; max-height: 78vh; overflow-y: auto; }
+  #text .speaker { display: block; font-weight: 700; color: var(--accent); margin-top: 10px; }
+  #text .topic { display: block; font-style: italic; color: var(--muted); }
+  .meta { color: var(--muted); font-size: 14px; margin-bottom: 8px; direction: ltr;
+          text-align: right; }
+  fieldset { border: 0; padding: 0; margin: 0 0 14px; }
+  legend { font-weight: 700; margin-bottom: 4px; }
+  .group { margin-bottom: 8px; }
+  .group h4 { margin: 6px 0 2px; font-size: 14px; color: var(--muted); }
+  .topic-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px;
+               border-radius: 6px; }
+  .topic-row.on { background: var(--pick); }
+  .topic-row small { color: var(--muted); direction: ltr; }
+  .star { cursor: pointer; border: 0; background: none; color: var(--muted); font-size: 16px;
+          padding: 0 2px; }
+  .star.main { color: #c8961e; }
+  input[type=text] { width: 100%; padding: 6px 8px; border: 1px solid var(--line);
+                     border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
+  .choices label { margin-left: 14px; white-space: nowrap; }
+  .buttons { display: flex; gap: 10px; position: sticky; bottom: 0; background: var(--card);
+             padding-top: 8px; }
+  button.primary { background: var(--accent); color: var(--card); border: 0; border-radius: 8px;
+                   padding: 8px 18px; font: inherit; cursor: pointer; }
+  button.secondary { background: none; color: var(--fg); border: 1px solid var(--line);
+                     border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; }
+  #error { color: #b3261e; min-height: 1.4em; }
+  .hint { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<header><strong>תיוג קטעים</strong><span id="progress"></span></header>
+<main id="app">
+  <section class="card">
+    <div class="meta" id="meta"></div>
+    <div id="text"></div>
+  </section>
+  <section class="card">
+    <fieldset>
+      <legend>נושאים</legend>
+      <div class="hint">סמנו כל נושא שמתאים; ★ = הנושא המרכזי (לא חובה). אין תשובה אחת נכונה.</div>
+      <div id="topics"></div>
+    </fieldset>
+    <fieldset>
+      <legend>הסוגיה הספציפית</legend>
+      <input type="text" id="issue" placeholder='למשל: רישוי יבוא רחפנים'>
+    </fieldset>
+    <fieldset class="choices">
+      <legend>סנטימנט <span class="hint">(לא חובה)</span></legend>
+      <label><input type="radio" name="sentiment" value="negative"> שלילי</label>
+      <label><input type="radio" name="sentiment" value="neutral"> ניטרלי</label>
+      <label><input type="radio" name="sentiment" value="positive"> חיובי</label>
+    </fieldset>
+    <fieldset class="choices">
+      <legend>עמדה <span class="hint">(לא חובה)</span></legend>
+      <label><input type="radio" name="stance" value="for"> בעד</label>
+      <label><input type="radio" name="stance" value="against"> נגד</label>
+      <label><input type="radio" name="stance" value="neutral"> ניטרלי</label>
+      <input type="text" id="target" placeholder="בעד / נגד מה?" style="margin-top:6px">
+    </fieldset>
+    <div id="error"></div>
+    <div class="buttons">
+      <button class="primary" id="save">שמירה והבא</button>
+      <button class="secondary" id="skip">דילוג</button>
+    </div>
+  </section>
+</main>
+<script>
+let state = null, picked = new Set(), main = null;
+
+const esc = s => s.replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+function renderText(text) {
+  return text.split("\n").map(line => {
+    let m = line.match(/^<<\s*([^<>]+?)\s*>>\s*(.+?)\s*<<\s*\1\s*>>\s*:?$/);
+    if (m && m[1].trim() === "נושא") return `<span class="topic">${esc(m[2])}</span>`;
+    if (m) return `<span class="speaker">${esc(m[2])}</span>`;
+    return esc(line);
+  }).join("\n");
+}
+
+function renderTopics() {
+  const groups = {};
+  for (const t of state.topics) (groups[t.parent] ||= []).push(t);
+  document.getElementById("topics").innerHTML = Object.entries(groups).map(([parent, ts]) =>
+    `<div class="group"><h4>${esc(parent)}</h4>` + ts.map(t =>
+      `<div class="topic-row${picked.has(t.id) ? " on" : ""}">
+         <button class="star${main === t.id ? " main" : ""}" data-star="${t.id}" title="נושא מרכזי">★</button>
+         <label><input type="checkbox" data-topic="${t.id}" ${picked.has(t.id) ? "checked" : ""}>
+         ${esc(t.he)}</label> <small>${t.id} · ${esc(t.en)}</small></div>`).join("") + `</div>`
+  ).join("");
+}
+
+function render(next) {
+  state = next; picked = new Set(); main = null;
+  document.getElementById("progress").textContent = `${state.done} / ${state.total}`;
+  document.getElementById("error").textContent = "";
+  for (const id of ["issue", "target"]) document.getElementById(id).value = "";
+  document.querySelectorAll("input[type=radio]").forEach(r => r.checked = false);
+  if (!state.chunk) {
+    document.getElementById("app").innerHTML = `<section class="card">סיימנו: ${state.done} קטעים מתויגים. אפשר לסגור את הדף.</section>`;
+    return;
+  }
+  const c = state.chunk;
+  document.getElementById("meta").textContent = [c.doc_id, c.date, c.speaker].filter(Boolean).join(" · ");
+  document.getElementById("text").innerHTML = renderText(c.text);
+  document.getElementById("text").scrollTop = 0;
+  renderTopics();
+}
+
+document.getElementById("topics").addEventListener("click", e => {
+  const star = e.target.closest("[data-star]");
+  if (star) {
+    const id = +star.dataset.star;
+    main = main === id ? null : id;
+    if (main !== null) picked.add(main);
+    renderTopics();
+    return;
+  }
+  const box = e.target.closest("[data-topic]");
+  if (box) {
+    const id = +box.dataset.topic;
+    box.checked ? picked.add(id) : (picked.delete(id), main === id && (main = null));
+    renderTopics();
+  }
+});
+
+async function post(path, body) {
+  const r = await fetch(path, {method: "POST", body: JSON.stringify(body)});
+  const data = await r.json();
+  if (!r.ok) { document.getElementById("error").textContent = data.error; return; }
+  render(data);
+}
+
+document.getElementById("save").onclick = () => {
+  if (!picked.size) { document.getElementById("error").textContent = "סמנו לפחות נושא אחד"; return; }
+  const val = n => (document.querySelector(`input[name=${n}]:checked`) || {}).value || null;
+  post("/api/save", {chunk_id: state.chunk.chunk_id, topics: [...picked], main,
+    issue: document.getElementById("issue").value, sentiment: val("sentiment"),
+    stance: val("stance"), stance_target: document.getElementById("target").value});
+};
+document.getElementById("skip").onclick = () => post("/api/skip", {chunk_id: state.chunk.chunk_id});
+
+fetch("/api/next").then(r => r.json()).then(render);
+</script>
+</body>
+</html>
