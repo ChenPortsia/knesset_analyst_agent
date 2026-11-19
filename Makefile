@@ -2,7 +2,7 @@ COMPOSE := docker compose
 export HOST_UID := $(shell id -u)
 export HOST_GID := $(shell id -g)
 
-.PHONY: up down status migrate dbt registry extract chunk speakers embed sync sync-full sync-deletes fixtures test lint fmt notebooks psql logs
+.PHONY: up down status migrate dbt registry extract chunk speakers links embed sync sync-full sync-deletes fixtures test lint fmt notebooks psql logs
 
 .env:
 	cp .env.example .env
@@ -50,6 +50,9 @@ chunk:
 
 speakers:
 	uv run knesset speakers $(ARGS)
+
+links:
+	uv run knesset links $(ARGS)
 
 embed:
 	uv run --extra embed knesset embed $(ARGS)

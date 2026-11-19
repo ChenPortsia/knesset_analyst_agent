@@ -195,6 +195,17 @@ def speakers(
 
 
 @app.command()
+def links(
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+) -> None:
+    """Enrichment tier 1: chunks → session items, speakers → person and faction."""
+    from knesset.enrich.links import link
+
+    totals = link(parse_knessets(knessets))
+    typer.echo(", ".join(f"{k} {v:,}" for k, v in totals.items()))
+
+
+@app.command()
 def embed(
     knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
     limit: int = typer.Option(0, help="Embed at most this many chunks (0: all), e.g. 1000"),

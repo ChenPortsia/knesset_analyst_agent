@@ -180,6 +180,16 @@
 - Many unresolved `דובר` speakers are committee legal advisors and officials (e.g. legal advisor ד"ר עידית חנוכה), and most guests are invitees: not in `dim_person`. A staff/guest list would be a later addition.
 - Header chunks rank high in keyword search; Phase 6 search should down-weight or filter them.
 
+## Phase 5 — Enrichment 🟡 in progress
+
+**Step 1 — structured links (built, tested offline; real run pending)**
+- `sql/004_enrichment.sql`: `chunk_items`, `chunk_entities`, `topics`, `chunk_enrichment`, `document_summaries` (§5), all cascading from their chunk or document, so re-chunking invalidates enrichment.
+- `enrich/links.py` (`knesset links [--knessets]`, `make links`):
+  - Protocol chunks → session items: walking a protocol in order, each `<< נושא >> title << נושא >>` is matched to the session's items by shared words (≥ 60% of the shorter title). A chunk where a topic starts belongs to the old and the new topic; an unmatched topic ends the current one; header chunks link to every item their agenda lists; a one-item session links all its chunks.
+  - Speakers → `chunk_entities` (source `speaker`): the person, and their faction on the session date.
+  - Idempotent: each run replaces its own rows for the scope.
+- Tests: 44 total (4 new).
+
 ## Changes to the plan
 
 - 18 Nov 2026, approved by the user: Phase 1 full-load target changed from < ~1 h to < ~4.5 h (WAF-limited to ~2 requests/s). PLAN.md §4 and §10 updated.
