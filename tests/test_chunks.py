@@ -34,7 +34,10 @@ PROTOCOL = f"""{HEADER}
 << קריאה >> שלום דנינו (הליכוד): << קריאה >>
 נכון.
 << אורח >> אסף לוי: << אורח >>
-התשובה שלנו פשוטה."""
+התשובה שלנו פשוטה. {SENTENCE}
+<< קריאה >> קריאות: << קריאה >>
+לא נכון.
+<< הפסקה >> (הישיבה נפסקה בשעה 12:00) << הפסקה >>"""
 
 
 def test_protocol_chunks():
@@ -55,7 +58,8 @@ def test_protocol_chunks():
     assert first.endswith(SENTENCE) and second.startswith(SENTENCE)  # overlap
 
     # the last two short turns share a chunk; topic tags are not speakers
-    assert [s[0] for s in chunks[-1].speakers] == ["שלום דנינו (הליכוד)", "אסף לוי"]
+    assert [s[0] for s in chunks[-1].speakers] == ["שלום דנינו (הליכוד)", "אסף לוי", "קריאות"]
+    assert "(הישיבה נפסקה" in chunks[-1].text  # a break is text, not a speaker
     assert not any(s[0].startswith("מכסות") for ch in chunks for s in ch.speakers)
 
 
@@ -94,14 +98,23 @@ def test_resolve_speakers():
             "אלון שוסטר": {2},
             "משה כהן": {3, 4},
             "יצחק רבין": {5},
+            "איתמר בן גביר": {6},
         },
-        last_names={"ביטן": {1}, "שוסטר": {2}, "כהן": {3, 4}, "רבין": {5}},
+        names={
+            1: ("דוד", "ביטן"),
+            2: ("אלון", "שוסטר"),
+            3: ("משה", "כהן"),
+            4: ("משה", "כהן"),
+            5: ("יצחק", "רבין"),
+            6: ("איתמר", "בן גביר"),
+        },
         periods={
             1: [(datetime(2022, 11, 15), None)],
             2: [(datetime(2022, 11, 15), None)],
             3: [(datetime(2022, 11, 15), None)],
             4: [(datetime(2021, 1, 1), None)],
             5: [(datetime(1992, 7, 13), datetime(1995, 11, 4))],
+            6: [(datetime(2022, 11, 15), None)],
         },
     )
     present = {"דוד ביטן", "אלון שוסטר"}
@@ -111,6 +124,9 @@ def test_resolve_speakers():
     assert people.resolve("יצחק רבין", when, present) == (5, 0.6)  # unique, not active
     assert people.resolve("משה כהן", when, present) == (None, 0.0)  # two active people
     assert people.resolve("אסף לוי", when, present) == (None, 0.0)  # invitee, not in marts
+    # a minister's full title around the name
+    assert people.resolve("השר לביטחון לאומי איתמר בן גביר", when, present) == (6, 0.8)
+    assert people.resolve("שר הבריאות משה כהן", when, present) == (None, 0.0)  # ambiguous
 
 
 # ---------------------------------------------------------------- database
@@ -120,8 +136,8 @@ def setup_db(texts: dict[str, str]) -> None:
     with connect() as conn:
         conn.execute("""create table marts.dim_person as
             select 1::bigint person_id, array['דוד ביטן', 'ביטן דוד'] name_variants,
-                   'ביטן' last_name
-            union all select 2, array['אלון שוסטר', 'שוסטר אלון'], 'שוסטר'""")
+                   'דוד' first_name, 'ביטן' last_name
+            union all select 2, array['אלון שוסטר', 'שוסטר אלון'], 'אלון', 'שוסטר'""")
         conn.execute("""create table marts.fct_person_position as
             select 1::bigint person_id, '2022-11-15'::timestamp start_date,
                    null::timestamp finish_date

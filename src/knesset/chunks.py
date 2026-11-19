@@ -28,7 +28,9 @@ MAX_SPEAKER_LINE = 80  # characters
 log = structlog.get_logger()
 
 TAGGED = re.compile(r"^<<\s*([^<>]+?)\s*>>\s*(.+?)\s*:?\s*<<\s*\1\s*>>\s*:?$")
-TOPIC_TAGS = {"נושא"}
+# Tags that mark structure, not a speaker: topic, vote, break, end, …
+STRUCTURAL_TAGS = {"נושא", "הצח", "הפסקה", "סיום", "הלסי", "אחרי_כן"}
+ANONYMOUS = {"קריאה", "קריאות"}  # a call from the floor, no name
 UNTAGGED = re.compile(rf"^[^.?!:|<>]{{2,{MAX_SPEAKER_LINE}}}:$")
 SENTENCE_END = re.compile(r"(?<=[.?!])\s+")
 TITLES = re.compile(
@@ -79,7 +81,7 @@ def tagged_speaker(line: str) -> tuple[str, str] | None:
     """(role, name) for a tagged speaker line; topic tags are not speakers."""
     if m := TAGGED.match(line):
         role, name = m.group(1).strip(), m.group(2).strip().rstrip(":").strip()
-        return None if role in TOPIC_TAGS else (role, name)
+        return None if role in STRUCTURAL_TAGS else (role, name)
     return None
 
 
@@ -223,29 +225,36 @@ def attendance_names(header: str) -> set[str]:
 
 @dataclass
 class People:
-    """Name variants of dim_person and the periods people held positions."""
+    """Name variants and first/last names of dim_person, and the periods people held positions."""
 
     variants: dict[str, set[int]]  # normalized variant → person ids
-    last_names: dict[str, set[int]]
+    names: dict[int, tuple[str, str]]  # person → (first, last), normalized
     periods: dict[int, list[tuple[datetime | None, datetime | None]]]
+
+    def __post_init__(self) -> None:
+        self.last_names: dict[str, set[int]] = {}
+        self.last_token: dict[str, set[int]] = {}  # last word of the last name → persons
+        for pid, (_, last) in self.names.items():
+            if last:
+                self.last_names.setdefault(last, set()).add(pid)
+                self.last_token.setdefault(last.split()[-1], set()).add(pid)
 
     @classmethod
     def load(cls, conn: psycopg.Connection) -> "People":
         variants: dict[str, set[int]] = {}
-        last_names: dict[str, set[int]] = {}
-        for pid, names, last in conn.execute(
-            "select person_id, name_variants, last_name from marts.dim_person"
+        names: dict[int, tuple[str, str]] = {}
+        for pid, vs, first, last in conn.execute(
+            "select person_id, name_variants, first_name, last_name from marts.dim_person"
         ):
-            for v in names:
+            for v in vs:
                 variants.setdefault(normalize_name(v), set()).add(pid)
-            if last:
-                last_names.setdefault(normalize_name(last), set()).add(pid)
+            names[pid] = (normalize_name(first or ""), normalize_name(last or ""))
         periods: dict[int, list] = {}
         for pid, start, finish in conn.execute(
             "select person_id, start_date, finish_date from marts.fct_person_position"
         ):
             periods.setdefault(pid, []).append((start, finish))
-        return cls(variants, last_names, periods)
+        return cls(variants, names, periods)
 
     def active(self, pid: int, when: datetime | None) -> bool:
         if when is None:
@@ -268,6 +277,19 @@ class People:
             return next(iter(active)), 1.0 if n in present else 0.9
         if len(exact) == 1:
             return next(iter(exact)), 0.6
+        # full first and last name inside a longer title ("השר לביטחון לאומי איתמר בן גביר")
+        words, padded = n.split(), f" {n} "
+        titled = {
+            p
+            for w in set(words)
+            for p in self.last_token.get(w, set())
+            if self.active(p, when)
+            and f" {self.names[p][1]} " in padded
+            and self.names[p][0]
+            and all(x in words for x in self.names[p][0].split())
+        }
+        if len(titled) == 1:
+            return next(iter(titled)), 0.8
         # last name only ("השר כהן", "כהן:"), unique among people present and active
         last = n.split()[-1]
         present_last = {
@@ -356,13 +378,19 @@ def resolve_speakers(
         rows = conn.execute(
             f"""select c.chunk_id, c.doc_id, c.speaker_raw, d.doc_date
                 from text.chunks c join text.documents d using (doc_id)
-                where c.speaker_raw is not null and {scope}""",
-            params,
+                where c.speaker_raw is not null and {scope}
+                  and c.speaker_role <> all(%(structural)s)""",
+            params | {"structural": list(STRUCTURAL_TAGS)},
         ).fetchall()
         present: dict[str, set[str]] = {}
         memo: dict[tuple[str, str], tuple[int | None, float]] = {}
         out = []
+        anonymous = 0
         for chunk_id, doc_id, name, when in rows:
+            if normalize_name(name) in ANONYMOUS:
+                anonymous += 1
+                out.append((chunk_id, None, None))
+                continue
             if doc_id not in present:
                 present[doc_id] = attendance_names(headers.get(doc_id, ""))
             if (doc_id, name) not in memo:
@@ -383,7 +411,11 @@ def resolve_speakers(
                      and (c.person_id, c.speaker_confidence)
                          is distinct from (s.person_id, s.conf)"""
             )
-        totals = {"speaker_chunks": len(out), "resolved": sum(r[1] is not None for r in out)}
+        # named speakers only: structural tags and anonymous calls are not people
+        totals = {
+            "speaker_chunks": len(out) - anonymous,
+            "resolved": sum(r[1] is not None for r in out),
+        }
         run.rows_in, run.rows_out = totals["speaker_chunks"], totals["resolved"]
         log.info("speakers_resolved", **totals)
     return totals
