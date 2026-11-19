@@ -157,6 +157,8 @@
 **Live findings**
 - `make chunk` (Knessets 25–26): 23,858 documents → 650,985 chunks in 26 min; 494,781 chunks with a speaker, 164,933 resolved (33%) — under investigation (titles, spelling variants; guests are mostly not in `dim_person`).
 - Embedding benchmark: 104 chunks/s on mps, but on the 1,000 shortest chunks (the embedder goes shortest first), so not representative. The overnight backfill finished (a rerun found nothing left; GPU 93–100% busy at ~27 W).
+- Backfill complete: 650,985 / 650,985 chunks embedded; HNSW built in 728 s after the shm fix.
+- Speaker resolution moved to its own step (`knesset speakers`, also run by `knesset chunk` for new documents): it updates `person_id` / `speaker_confidence` in place, so better matching never re-chunks or loses embeddings.
 - HNSW build failed with `DiskFull: could not resize shared memory segment`: Docker gives the db container 64 MB of `/dev/shm`, and a parallel build needs a segment of `maintenance_work_mem` (was 2 GB). Fixed: `shm_size: 2gb` on the db service, `maintenance_work_mem` 1 GB.
 
 **Pending (on the Mac)**

@@ -16,6 +16,7 @@ from functools import cache
 
 import psycopg
 import structlog
+from psycopg.types.json import Jsonb
 
 from knesset import log as logs
 from knesset.db import connect, migrate
@@ -287,13 +288,14 @@ def chunk_documents(
     limit: int | None = None,
     count: Callable[[str], int] = count_tokens_bge,
 ) -> dict[str, int]:
-    """(Re)chunk extracted documents whose text changed since they were last chunked."""
+    """(Re)chunk extracted documents whose text changed since they were last chunked, then
+    resolve their speakers."""
     migrate()
-    totals = {"docs": 0, "chunks": 0, "speaker_chunks": 0, "resolved": 0}
+    totals = {"docs": 0, "chunks": 0}
+    chunked: list[str] = []
     with logs.run("chunk", knessets=knessets, limit=limit) as run, connect() as conn:
-        people = People.load(conn)
         docs = conn.execute(
-            """select doc_id, text, content_hash, doc_date,
+            """select doc_id, text, content_hash,
                       group_type like '%%פרוטוקול%%' or group_type = 'דברי הכנסת' as protocol
                from text.documents
                where status = 'done' and chunked_hash is distinct from content_hash
@@ -302,38 +304,18 @@ def chunk_documents(
                limit %(limit)s""",
             {"k": knessets, "limit": limit},
         ).fetchall()
-        for doc_id, text, content_hash, doc_date, protocol in docs:
-            chunks = chunk_text(text, count, bool(protocol))
-            present = attendance_names(chunks[0].text) if chunks[0].kind == "header" else set()
+        for doc_id, text, content_hash, protocol in docs:
             rows = []
-            for ord_, c in enumerate(chunks):
-                name, role, pid, conf = None, None, None, None
-                if c.speakers:
-                    name, role, _ = max(c.speakers, key=lambda s: s[2])
-                    pid, conf = people.resolve(name, doc_date, present)
-                    conf = conf if pid is not None else None
-                    totals["speaker_chunks"] += 1
-                    totals["resolved"] += pid is not None
+            for ord_, c in enumerate(chunk_text(text, count, bool(protocol))):
+                name, role = max(c.speakers, key=lambda s: s[2])[:2] if c.speakers else (None, None)
                 meta = {"kind": c.kind, "speakers": sorted({s[0] for s in c.speakers})}
-                rows.append(
-                    (
-                        doc_id,
-                        ord_,
-                        c.text,
-                        c.n_tokens,
-                        hashlib.sha256(c.text.encode()).hexdigest(),
-                        name,
-                        role,
-                        pid,
-                        conf,
-                        psycopg.types.json.Jsonb(meta),
-                    )
-                )
+                digest = hashlib.sha256(c.text.encode()).hexdigest()
+                rows.append((doc_id, ord_, c.text, c.n_tokens, digest, name, role, Jsonb(meta)))
             with conn.transaction():
                 conn.execute("delete from text.chunks where doc_id = %s", (doc_id,))
                 with conn.cursor().copy(
                     "copy text.chunks (doc_id, ord, text, n_tokens, chunk_hash, speaker_raw,"
-                    " speaker_role, person_id, speaker_confidence, meta) from stdin"
+                    " speaker_role, meta) from stdin"
                 ) as copy:
                     for row in rows:
                         copy.write_row(row)
@@ -341,10 +323,67 @@ def chunk_documents(
                     "update text.documents set chunked_hash = %s where doc_id = %s",
                     (content_hash, doc_id),
                 )
+            chunked.append(doc_id)
             totals["docs"] += 1
             totals["chunks"] += len(rows)
             if totals["docs"] % 500 == 0:
                 log.info("chunk_progress", **totals)
         run.rows_in, run.rows_out = totals["docs"], totals["chunks"]
         log.info("chunk_done", **totals)
+    if chunked:
+        totals |= resolve_speakers(doc_ids=chunked)
+    return totals
+
+
+def resolve_speakers(
+    knessets: list[int] | None = None, doc_ids: list[str] | None = None
+) -> dict[str, int]:
+    """Set person_id and speaker_confidence on speaker chunks, in place: re-running it after
+    better matching never touches chunks or embeddings."""
+    migrate()
+    params = {"k": knessets, "ids": doc_ids}
+    scope = """(%(k)s::int[] is null or d.knesset_num = any(%(k)s))
+               and (%(ids)s::text[] is null or c.doc_id = any(%(ids)s))"""
+    with logs.run("speakers", knessets=knessets, docs=len(doc_ids or [])) as run, connect() as conn:
+        people = People.load(conn)
+        headers = dict(
+            conn.execute(
+                f"""select c.doc_id, c.text from text.chunks c join text.documents d using (doc_id)
+                    where c.ord = 0 and c.meta->>'kind' = 'header' and {scope}""",
+                params,
+            ).fetchall()
+        )
+        rows = conn.execute(
+            f"""select c.chunk_id, c.doc_id, c.speaker_raw, d.doc_date
+                from text.chunks c join text.documents d using (doc_id)
+                where c.speaker_raw is not null and {scope}""",
+            params,
+        ).fetchall()
+        present: dict[str, set[str]] = {}
+        memo: dict[tuple[str, str], tuple[int | None, float]] = {}
+        out = []
+        for chunk_id, doc_id, name, when in rows:
+            if doc_id not in present:
+                present[doc_id] = attendance_names(headers.get(doc_id, ""))
+            if (doc_id, name) not in memo:
+                memo[doc_id, name] = people.resolve(name, when, present[doc_id])
+            pid, conf = memo[doc_id, name]
+            out.append((chunk_id, pid, conf if pid is not None else None))
+        with conn.cursor() as cur:
+            cur.execute(
+                "create temp table _spk (chunk_id bigint, person_id bigint, conf real)"
+                " on commit drop"
+            )
+            with cur.copy("copy _spk (chunk_id, person_id, conf) from stdin") as copy:
+                for row in out:
+                    copy.write_row(row)
+            cur.execute(
+                """update text.chunks c set person_id = s.person_id, speaker_confidence = s.conf
+                   from _spk s where c.chunk_id = s.chunk_id
+                     and (c.person_id, c.speaker_confidence)
+                         is distinct from (s.person_id, s.conf)"""
+            )
+        totals = {"speaker_chunks": len(out), "resolved": sum(r[1] is not None for r in out)}
+        run.rows_in, run.rows_out = totals["speaker_chunks"], totals["resolved"]
+        log.info("speakers_resolved", **totals)
     return totals

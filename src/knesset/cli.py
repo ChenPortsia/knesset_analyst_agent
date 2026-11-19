@@ -184,6 +184,17 @@ def chunk(
 
 
 @app.command()
+def speakers(
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+) -> None:
+    """Re-resolve chunk speakers to dim_person in place (chunks and embeddings untouched)."""
+    from knesset.chunks import resolve_speakers
+
+    totals = resolve_speakers(parse_knessets(knessets))
+    typer.echo(", ".join(f"{k} {v:,}" for k, v in totals.items()))
+
+
+@app.command()
 def embed(
     knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
     limit: int = typer.Option(0, help="Embed at most this many chunks (0: all), e.g. 1000"),

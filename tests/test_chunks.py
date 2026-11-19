@@ -176,6 +176,18 @@ def test_chunk_and_embed(db):
         (1, "טקסט חדש.")
     ]
 
+    # better matching later: re-resolve in place, chunks untouched
+    ids_before = q("select array_agg(chunk_id order by chunk_id) from text.chunks")
+    baseline = c.resolve_speakers([25])["resolved"]
+    with connect() as conn:
+        conn.execute(
+            "update marts.dim_person set name_variants = array_append(name_variants, 'אסף לוי')"
+            " where person_id = 2"
+        )
+    assert c.resolve_speakers([25])["resolved"] > baseline
+    assert q("select distinct person_id from text.chunks where speaker_raw = 'אסף לוי'") == [(2,)]
+    assert q("select array_agg(chunk_id order by chunk_id) from text.chunks") == ids_before
+
     calls: list[int] = []
 
     def fake_encoder(texts: list[str]) -> list[list[float]]:
