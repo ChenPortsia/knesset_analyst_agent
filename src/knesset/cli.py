@@ -206,6 +206,14 @@ def links(
 
 
 @app.command()
+def topics() -> None:
+    """Load the topic taxonomy (src/knesset/enrich/topics.yaml) into text.topics."""
+    from knesset.enrich.topics import load_topics
+
+    typer.echo(f"{load_topics()} topics loaded")
+
+
+@app.command()
 def embed(
     knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
     limit: int = typer.Option(0, help="Embed at most this many chunks (0: all), e.g. 1000"),
