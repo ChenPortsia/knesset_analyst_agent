@@ -154,8 +154,13 @@
 - Tests (40 total, 7 new; word count stands in for the tokenizer, a fake encoder for bge-m3): chunking of protocols/untagged/other documents, overlap, names, attendance, all resolution paths, prefix search, chunk → re-chunk → embed (shared embeddings) → HNSW → nearest neighbour.
 - Notebook `04_chunks_embeddings` (smoke-tested on test data with the vector part off).
 
+**Live findings**
+- `make chunk` (Knessets 25–26): 23,858 documents → 650,985 chunks in 26 min; 494,781 chunks with a speaker, 164,933 resolved (33%) — under investigation (titles, spelling variants; guests are mostly not in `dim_person`).
+- Embedding benchmark: 104 chunks/s on mps, but on the 1,000 shortest chunks (the embedder goes shortest first), so not representative. The overnight backfill finished (a rerun found nothing left; GPU 93–100% busy at ~27 W).
+- HNSW build failed with `DiskFull: could not resize shared memory segment`: Docker gives the db container 64 MB of `/dev/shm`, and a parallel build needs a segment of `maintenance_work_mem` (was 2 GB). Fixed: `shm_size: 2gb` on the db service, `maintenance_work_mem` 1 GB.
+
 **Pending (on the Mac)**
-1. `git pull`; `make chunk` (Knessets 25–26).
+1. `git pull`; `make chunk` (Knessets 25–26) — done.
 2. `make embed ARGS="--limit 1000"`: the benchmark; the full projection goes here before the backfill.
 3. `make embed ARGS="--index"`: the backfill and the HNSW index.
 4. `uv run --extra embed jupytext --to ipynb --execute notebooks/04_chunks_embeddings.py`; report the speaker match rate; tag `phase-4`.

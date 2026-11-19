@@ -107,7 +107,9 @@ def build_index() -> float:
     """HNSW index for cosine search; build it after the bulk embed. Returns seconds."""
     started = time.monotonic()
     with logs.run("embed_index"), connect() as conn:
-        conn.execute("set maintenance_work_mem = '2GB'")
+        # Parallel builds take a shared-memory segment this size: keep it under the db
+        # container's shm_size (docker-compose.yml). A graph that outgrows it builds slower.
+        conn.execute("set maintenance_work_mem = '1GB'")
         conn.execute(
             "create index if not exists chunks_embedding_hnsw on text.chunks"
             " using hnsw (embedding halfvec_cosine_ops)"
