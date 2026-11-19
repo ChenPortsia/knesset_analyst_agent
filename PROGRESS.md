@@ -173,7 +173,7 @@
 - Chunks: 494,783 speaker-turn, 114,121 paragraph, 42,081 header; median 488 / 466 / 483 tokens; 610,375 distinct texts.
 - Keyword hits plain → prefix-stripped: מכסות לייבוא דבש 6 → 17, יוקר המחיה 3,407 → 4,976, החטופים בעזה 3,831 → 7,958, רפורמה משפטית 299 → 1,855.
 - Vector search finds the relevant debates (beekeepers' protocol for the honey quota, hostage families' testimony); keyword ranking often puts attendance-list header chunks first; hybrid (RRF) balances the two.
-- After the notebook: `<< מנהל >>` (a chair-change note) and `שאילתה` are structural tags too; titles with a comma ("שר הנגב, הגליל והחוסן הלאומי …") now match on the whole string. Run `make speakers` to apply (no re-chunking).
+- After the notebook: `<< מנהל >>` (a chair-change note) and `שאילתה` are structural tags too; titles with a comma ("שר הנגב, הגליל והחוסן הלאומי …") now match on the whole string. Run `make speakers` to apply (no re-chunking). Applied: 182,103 of 420,944 named-speaker chunks resolved (43%; ≈ 70% without guests, who are mostly not in `dim_person`).
 
 **Open issues**
 - A few chunks exceed the target: max 22,315 tokens, where a "sentence" has no sentence end (long tables or lists). bge-m3 reads the first 1,024 tokens of those; the rest is keyword-searchable only. Fix: split over-long sentences by words, then re-chunk just those documents.
