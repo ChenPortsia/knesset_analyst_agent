@@ -28,4 +28,8 @@ The full plan is in `PLAN.md`. Status per phase is in `PROGRESS.md`.
 - `make chunk` — chunk extracted documents and resolve speakers (native)
 - `make speakers` — re-resolve chunk speakers to `dim_person` in place (embeddings untouched)
 - `make embed ARGS="--limit 1000"` — bge-m3 embeddings on the local GPU (native, `embed` extra); `--index` builds HNSW
+- `uv run knesset links` — enrichment tier 1 (chunks → session items, speakers → person/faction)
+- `uv run knesset topics` — load `src/knesset/enrich/topics.yaml` into `text.topics`
+- `uv run knesset label` — hand-label the gold set (`eval/labeled_chunks.jsonl`)
+- `uv run knesset topics-teach --n 500 [--dry-run]` — paid: LLM teacher labels (Batch API, capped by `TOPIC_BUDGET_USD`); `topics-collect`, `topics-eval`, `topics-apply`
 - `make test` (DB tests need `make up`), `make lint`, `make notebooks`

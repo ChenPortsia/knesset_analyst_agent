@@ -20,6 +20,10 @@ class Settings(BaseSettings):
 
     odata_concurrency: int = 8
 
+    anthropic_api_key: str = ""  # .env only; never logged
+    enrich_model: str = "claude-haiku-5-5"
+    topic_budget_usd: float = 10.0  # hard cap for all topic labeling (teacher + clusters)
+
     soffice: str = "soffice"  # LibreOffice binary (in the app image; on macOS the .app path)
     soffice_workers: int = 4
 

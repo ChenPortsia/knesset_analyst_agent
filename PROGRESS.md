@@ -194,6 +194,19 @@
 **Step 2 — topic taxonomy (draft, awaiting the user's review)**
 - `src/knesset/enrich/topics.yaml`: 9 parents, 48 topics, Hebrew + English, each noting which law classifications (`KNS_IsraelLawClassificiation`, 51 values) and committees it absorbs. `knesset topics` loads it into `text.topics` (removed topics are dropped).
 
+**Topic strategy (agreed 19 Nov 2026): budget ≈ $10 for all topic labeling**
+- Instead of the LLM labeling topics on every chunk (plan §10 step 3), Claude Haiku 5.5 labels a stratified *teaching sample* (benchmark 500, then ≈ 25k, plus ≈ 10k for weak topics), and a classifier on the existing bge-m3 embeddings labels every chunk for free. Discovered clusters per period (emerging issues) are named with one LLM call per cluster. Keywords come free from word statistics. Stance, speech act and summaries per chunk get their own budget decision later.
+- Hard cap in code: every paid batch is projected first (free token counting on a sample) and refused if the projection exceeds `TOPIC_BUDGET_USD` (default $10) minus what the topic steps already spent; actual cost from the API's usage goes to `ops.llm_batches` and `ops.runs.cost_usd`.
+
+**Step 3 — teacher, classifier and gold set (built, tested offline; real runs pending)**
+- `sql/005_topic_labels.sql`: `text.topic_labels` (source `llm` or `user`), `ops.llm_batches` (with the request → chunk map, so an interrupted wait can be collected later), topic columns on `chunk_enrichment`, cost columns to 6 decimals.
+- `enrich/llm.py`: prices, cost from usage, projection, budget check, Batch API submit/collect.
+- `enrich/topics_llm.py` (`knesset topics-teach [--n] [--max-usd] [--dry-run]`, `knesset topics-collect`): sample spread round-robin across strata (document type × committee × year) before depth; skips headers, structural tags, < 60 tokens, duplicates and labeled chunks; 10 chunks per request, first 1,200 characters each, cached system prompt (instructions + taxonomy), JSON schema limited to valid topic ids (1–3), thinking off, effort low.
+- `enrich/topic_clf.py` (`knesset topics-eval`, `knesset topics-apply [--method logreg|knn]`): logistic regression per topic or a vote of the 15 nearest labeled chunks; best topic plus up to two more above a threshold tuned on held-out labels; micro/macro F1 and top-1 on held-out LLM labels and on the hand labels.
+- `enrich/label.py` (`knesset label [--n 150]`): interactive hand labeling (topics, sentiment, stance + target) into `eval/labeled_chunks.jsonl` and `topic_labels` (source `user`); resumable.
+- Tests: 49 total (fake Anthropic client: projection, budget refusal, batch round trip with actual cost; classifier on clustered synthetic embeddings; scripted labeling session).
+- Notebook `05_enrichment`: budget, labels, classifier quality, topic distribution, topic shares per quarter, samples.
+
 ## Changes to the plan
 
 - 18 Nov 2026, approved by the user: Phase 1 full-load target changed from < ~1 h to < ~4.5 h (WAF-limited to ~2 requests/s). PLAN.md §4 and §10 updated.

@@ -214,6 +214,66 @@ def topics() -> None:
 
 
 @app.command()
+def label(
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+    n: int = typer.Option(150, help="Size of the hand-labeled gold set"),
+) -> None:
+    """Hand-label chunks (topics, sentiment, stance) into eval/labeled_chunks.jsonl."""
+    from knesset.enrich.label import label as run_label
+
+    typer.echo(f"{run_label(parse_knessets(knessets), n)} chunks labeled")
+
+
+@app.command("topics-teach")
+def topics_teach(
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+    n: int = typer.Option(500, help="Chunks to label with the LLM (benchmark 500, then ~25000)"),
+    max_usd: float = typer.Option(0, help="Budget cap (default: TOPIC_BUDGET_USD)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Project the cost, submit nothing"),
+) -> None:
+    """Teacher labels: the LLM labels a stratified sample with topics (Batch API, budget cap)."""
+    from knesset.enrich.llm import BudgetExceeded
+    from knesset.enrich.topics_llm import teach
+
+    try:
+        result = teach(parse_knessets(knessets), n, max_usd or None, dry_run)
+    except BudgetExceeded as e:
+        typer.echo(f"ERR  {e}", err=True)
+        raise typer.Exit(2) from e
+    typer.echo(", ".join(f"{k} {v}" for k, v in result.items()))
+
+
+@app.command("topics-collect")
+def topics_collect() -> None:
+    """Collect topic-labeling batches whose wait was interrupted."""
+    from knesset.enrich.topics_llm import collect_pending
+
+    for result in collect_pending():
+        typer.echo(", ".join(f"{k} {v}" for k, v in result.items()))
+
+
+@app.command("topics-eval")
+def topics_eval() -> None:
+    """Compare the topic classifiers on held-out LLM labels (and your hand labels)."""
+    from knesset.enrich.topic_clf import evaluate
+
+    for method, result in evaluate().items():
+        typer.echo(f"{method}: {result}")
+
+
+@app.command("topics-apply")
+def topics_apply(
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+    method: str = typer.Option("logreg", help="logreg or knn"),
+) -> None:
+    """Label every chunk's topics with the classifier (free)."""
+    from knesset.enrich.topic_clf import apply
+
+    result = apply(parse_knessets(knessets), method)
+    typer.echo(", ".join(f"{k} {v}" for k, v in result.items()))
+
+
+@app.command()
 def embed(
     knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
     limit: int = typer.Option(0, help="Embed at most this many chunks (0: all), e.g. 1000"),
