@@ -4,6 +4,7 @@ Runs natively where the GPU is (`uv run --extra embed knesset embed`): Docker
 on macOS cannot use the Apple GPU. Chunks with the same text share one embedding.
 """
 
+import re
 import time
 from collections.abc import Callable, Sequence
 
@@ -18,6 +19,15 @@ DIM = 1024
 
 Encoder = Callable[[list[str]], Sequence[Sequence[float]]]
 log = structlog.get_logger()
+
+
+MARKUP = re.compile(r"[ \t]*<<\s*[^<>\n]+?\s*>>[ \t]*")
+
+
+def plain(text: str) -> str:
+    """The text the model sees: protocol markers dropped, so `<< דובר >> X: << דובר >>`
+    becomes `X:`. The stored text keeps them for speaker and section parsing."""
+    return MARKUP.sub("", text)
 
 
 def load_encoder(device: str) -> Encoder:
@@ -75,7 +85,7 @@ def embed_chunks(
                     "select chunk_id, text from text.chunks where chunk_id = any(%s)",
                     (ids[i : i + batch],),
                 ).fetchall()
-                vectors = encode([text for _, text in rows])
+                vectors = encode([plain(text) for _, text in rows])
                 with conn.cursor() as cur:
                     cur.execute(
                         "create temp table if not exists _emb (chunk_id bigint, v text)"

@@ -230,3 +230,10 @@ def test_chunk_and_embed(db):
                                            where doc_id = 'd:2') limit 1""")
     assert nearest == [("d:2", 0)]
     assert json.loads(json.dumps(rows[0][4]))["speakers"] == []
+
+
+def test_embedder_sees_text_without_markup():
+    from knesset.embed import plain
+
+    text = '<< יור >> היו"ר יעקב אשר: << יור >>\nבוקר טוב.\n<< נושא >> הצעת חוק << נושא >>'
+    assert plain(text) == 'היו"ר יעקב אשר:\nבוקר טוב.\nהצעת חוק'
