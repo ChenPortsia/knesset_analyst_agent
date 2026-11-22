@@ -277,11 +277,14 @@ HEBREW_PUNCT = str.maketrans({"־": "-", "׳": "'", "״": '"', "\xa0": " "})
 
 def clean(text: str) -> str:
     """Normalize whitespace and Hebrew punctuation, drop page numbers and repeated headers or
-    footers (short lines seen 5+ times), keep speaker lines (they end with ':')."""
+    footers (short lines seen 5+ times), keep speaker lines (`<< tag >> name: << tag >>`, or
+    ending with ':') however often they repeat."""
     text = DIRECTION_MARKS.sub("", unicodedata.normalize("NFC", text)).translate(HEBREW_PUNCT)
     lines = [re.sub(r"[ \t\f\v]+", " ", line).strip() for line in text.splitlines()]
     counts = Counter(line for line in lines if line and len(line) < 60)
-    repeated = {line for line, n in counts.items() if n >= 5 and not line.endswith(":")}
+    repeated = {
+        line for line, n in counts.items() if n >= 5 and not line.endswith(":") and "<<" not in line
+    }
     out: list[str] = []
     for line in lines:
         if line in repeated or PAGE_NUMBER.match(line):
@@ -309,17 +312,17 @@ async def extract(
     limit: int | None = None,
     max_priority: int = 4,
     api: OData | None = None,
-    redo: str | None = None,
+    redo: list[str] | None = None,
 ) -> Counter:
-    """Extract pending documents (in `knessets`, or all when None), by priority. `redo` (a
-    detected type, e.g. 'docx') first queues the done documents of that type again; their text
-    stays until replaced, and unchanged text keeps its chunks and embeddings."""
+    """Extract pending documents (in `knessets`, or all when None), by priority.
+    `redo` (detected types, e.g. ['docx', 'doc']) first queues those done documents again;
+    their text stays until replaced, and unchanged text keeps its chunks and embeddings."""
     migrate()
     if redo:
         with connect() as conn:
             conn.execute(
                 """update text.documents set status = 'pending', attempts = 0
-                   where status = 'done' and detected_type = %s and priority <= %s
+                   where status = 'done' and detected_type = any(%s) and priority <= %s
                      and (%s::int[] is null or knesset_num = any(%s))""",
                 (redo, max_priority, knessets, knessets),
             )

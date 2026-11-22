@@ -227,3 +227,4 @@
 - Fix: `docx_text` reads every `w:t`, including inline and block content controls (test added).
 - Rerun: `make extract ARGS="--redo docx"`, then `make chunk`, `make embed`, `uv run knesset links`. Chunks whose text did not change keep their embeddings (deduplicated by `chunk_hash`).
 - The speaker-resolution numbers above (43%) predate this fix.
+- Second cause, found after the rerun: `clean()` dropped short lines repeated 5+ times as running headers. A tagged speaker line (`<< יור >> היו"ר X: << יור >>`) ends with `>>`, not `:`, so a chair or frequent speaker was deleted. Lines with `<<` are now always kept (test added). After the first rerun, committee chunks had only 2,958 `יור` chunks; the fix needs `make extract ARGS="--redo docx,doc --priority 2"` again.

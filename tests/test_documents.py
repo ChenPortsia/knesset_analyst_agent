@@ -55,13 +55,15 @@ def to_doc(data: bytes, tmp: Path) -> bytes:
 
 def test_clean():
     header = "הכנסת העשרים וחמש - ועדת הכספים"
+    chair = '<< יור >> היו"ר משה כהן: << יור >>'
     raw = "\n".join(
-        [f"‏{header}", "היו״ר משה כהן:", "אני  פותח\tאת הישיבה.", "- 2 -"]
-        + [header, "עמוד 3", "דברים", "", "", "עוד דברים"] * 4
+        [f"‏{header}", "היו״ר משה כהן:", "אני  פותח\tאת הישיבה.", "- 2 -", chair]
+        + [header, "עמוד 3", "דברים", "", "", chair, "עוד דברים"] * 4
     )
     text = d.clean(raw)
     assert header not in text  # repeated 5 times: a running header
     assert 'היו"ר משה כהן:' in text  # gershayim → ", speaker line kept
+    assert text.count(chair) == 5  # a chair speaking often is not a running header
     assert "אני פותח את הישיבה." in text
     assert "- 2 -" not in text and "עמוד 3" not in text  # page numbers
     assert "\n\n\n" not in text
@@ -322,7 +324,7 @@ def test_extract_end_to_end(db, tmp_path):
     assert set(Path(tempfile.gettempdir()).glob("knesset-*")) - before - lo_profiles == set()
 
     # --redo docx extracts the done .docx documents again; other types keep their status.
-    assert run(redo="docx") == {"done": 3}  # the failed one stays failed
+    assert run(redo=["docx"]) == {"done": 3}  # the failed one stays failed
     assert q("select status from text.documents where doc_id = 'committee_session:3'") == [
         ("done",)
     ]
