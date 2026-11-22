@@ -20,7 +20,7 @@ URL_NAME_FIXES = {"KNS_DocumentQuerie": "KNS_DocumentQuery"}  # the declared nam
 PAGE_SIZE = 100  # hard cap on the server
 SERVER_ERRORS = {500, 502, 503, 504}
 WAF_STATUS = {473, 481}  # non-standard firewall answers: slow down, wait longer, retry
-WAF_BACKOFF = 10  # × backoff_s
+WAF_PAUSE_S = 60  # × backoff_s: after a WAF answer every request waits this long, together
 THROTTLE_COOLDOWN_S = 30  # one halving per WAF episode, not one per in-flight request
 
 log = structlog.get_logger()
@@ -82,7 +82,8 @@ def row_id(row: dict) -> int:
 
 
 class OData:
-    """One shared HTTP/2 client and one global concurrency limit, halved on WAF answers."""
+    """One shared HTTP/2 client and one global concurrency limit. A WAF answer pauses all
+    requests (retrying each on its own timer keeps the firewall blocking) and halves the limit."""
 
     def __init__(
         self,
@@ -97,6 +98,7 @@ class OData:
         self.backoff_s = backoff_s
         self.requests = 0
         self.throttled_at = -THROTTLE_COOLDOWN_S
+        self.paused_until = 0.0
         self.client = httpx.AsyncClient(
             http2=transport is None,
             transport=transport,
@@ -113,6 +115,9 @@ class OData:
 
     async def _throttle(self) -> None:
         now = time.monotonic()
+        if now >= self.paused_until:
+            log.warning("odata_paused", seconds=self.backoff_s * WAF_PAUSE_S)
+        self.paused_until = max(self.paused_until, now + self.backoff_s * WAF_PAUSE_S)
         if self.limit > 1 and now - self.throttled_at >= THROTTLE_COOLDOWN_S:
             self.throttled_at = now
             steal = self.limit // 2
@@ -126,6 +131,8 @@ class OData:
         for attempt in range(1, self.retries + 1):
             try:
                 async with self.sem:
+                    while (wait := self.paused_until - time.monotonic()) > 0:
+                        await asyncio.sleep(wait)
                     self.requests += 1
                     if (counter := task_requests.get()) is not None:
                         counter[0] += 1
@@ -148,8 +155,10 @@ class OData:
                 error, waf = repr(e), False
             if attempt == self.retries:
                 raise RuntimeError(f"{url} failed after {attempt} attempts: {error}")
-            base, cap = (self.backoff_s * WAF_BACKOFF, 120) if waf else (self.backoff_s, 30)
-            delay = min(base * 2 ** (attempt - 1), cap) * (0.5 + random.random())
+            if waf:  # the shared pause does the waiting; spread the restart a little
+                await asyncio.sleep(self.backoff_s * 5 * random.random())
+                continue
+            delay = min(self.backoff_s * 2 ** (attempt - 1), 30) * (0.5 + random.random())
             log.warning("odata_retry", url=url, attempt=attempt, error=error, delay=round(delay, 2))
             await asyncio.sleep(delay)
         raise AssertionError("unreachable")

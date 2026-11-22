@@ -123,3 +123,22 @@ def test_gives_up_after_retries():
 
     with pytest.raises(RuntimeError, match="after 3 attempts"):
         run(go())
+
+
+def test_waf_answer_pauses_every_request():
+    fake = FakeOData(sample_tables())
+    fake.fail["KNS_Person"] = [481]
+
+    async def go():
+        async with OData(transport=fake.transport(), backoff_s=0.002) as api:  # 0.12 s pause
+            es = {s.name: s for s in await api.metadata()}["KNS_Person"]
+            loop = asyncio.get_running_loop()
+            first = asyncio.create_task(api.page(es, after=0))
+            await asyncio.sleep(0.02)  # the 481 has arrived: the client is paused
+            start = loop.time()
+            await api.metadata()  # an unrelated request waits too
+            waited = loop.time() - start
+            await first
+            return waited
+
+    assert run(go()) > 0.08
