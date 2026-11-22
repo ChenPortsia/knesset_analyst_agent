@@ -9,6 +9,7 @@
 """
 
 import re
+from typing import Any
 
 import structlog
 
@@ -62,17 +63,23 @@ def link_chunks(
     return sorted(rows)
 
 
+def session_items(conn: Any) -> dict[tuple[str, int], list[tuple[int, int, set[str]]]]:
+    """(session type, session id) → [(item_type_id, item_id, title words)]."""
+    items: dict[tuple[str, int], list[tuple[int, int, set[str]]]] = {}
+    for stype, sid, type_id, item_id, name in conn.execute(
+        "select session_type, session_id, item_type_id, item_id, item_name"
+        " from marts.fct_session_item where item_id is not null"
+    ):
+        items.setdefault((stype, sid), []).append((type_id, item_id, words(name or "")))
+    return items
+
+
 def link_items(knessets: list[int] | None) -> int:
     """Rebuild chunk_items for protocol chunks in the given Knessets. Returns rows written."""
     params = {"k": knessets}
     scope = "(%(k)s::int[] is null or d.knesset_num = any(%(k)s))"
     with connect() as conn:
-        items: dict[tuple[str, int], list[tuple[int, int, set[str]]]] = {}
-        for stype, sid, type_id, item_id, name in conn.execute(
-            "select session_type, session_id, item_type_id, item_id, item_name"
-            " from marts.fct_session_item where item_id is not null"
-        ):
-            items.setdefault((stype, sid), []).append((type_id, item_id, words(name or "")))
+        items = session_items(conn)
         rows: list[tuple[int, int, int]] = []
         doc_chunks: list[tuple[int, str, list[str]]] = []
         key = None

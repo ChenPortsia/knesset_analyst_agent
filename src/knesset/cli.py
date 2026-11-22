@@ -214,6 +214,17 @@ def links(
 
 
 @app.command()
+def structure(
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+) -> None:
+    """Protocol sections (agenda items, words per speaker) and attendance lists, from markup."""
+    from knesset.enrich.structure import build
+
+    totals = build(parse_knessets(knessets))
+    typer.echo(", ".join(f"{k} {v:,}" for k, v in totals.items()))
+
+
+@app.command()
 def topics() -> None:
     """Load the topic taxonomy (src/knesset/enrich/topics.yaml) into text.topics."""
     from knesset.enrich.topics import load_topics

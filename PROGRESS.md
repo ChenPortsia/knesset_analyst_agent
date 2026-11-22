@@ -228,3 +228,9 @@
 - Rerun: `make extract ARGS="--redo docx"`, then `make chunk`, `make embed`, `uv run knesset links`. Chunks whose text did not change keep their embeddings (deduplicated by `chunk_hash`).
 - The speaker-resolution numbers above (43%) predate this fix.
 - Second cause, found after the rerun: `clean()` dropped short lines repeated 5+ times as running headers. A tagged speaker line (`<< יור >> היו"ר X: << יור >>`) ends with `>>`, not `:`, so a chair or frequent speaker was deleted. Lines with `<<` are now always kept (test added). After the first rerun, committee chunks had only 2,958 `יור` chunks; the fix needs `make extract ARGS="--redo docx,doc --priority 2"` again.
+
+### Phase 5, step 2: protocol structure (`knesset structure`, no model)
+- `text.sections`: each protocol split at `<< נושא >>` / `<< הצח >>` / `<< הלסי >>` markers; title matched to the session item (`best_item`); words and turns per section. A marker straight after a marker (< 20 words between) is one section; the נושא title wins.
+- `text.section_speakers`: words and turns per speaker per section, speakers resolved to `dim_person` as on chunks. Answers "share of the session per agenda item / per speaker / per faction".
+- `text.participants`: committee attendance lists (name, list heading, description, organization = last comma part; person_id for members, exact matches for others). The transcription service is skipped.
+- Chunks and embeddings are untouched: the tables are built from `text.documents`.
