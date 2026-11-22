@@ -274,6 +274,17 @@ def topics_apply(
 
 
 @app.command()
+def samples(
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+    per_type: int = typer.Option(3, help="Documents per document type"),
+) -> None:
+    """Write sample documents per type and the markup tag inventory into eval/samples/."""
+    from knesset.samples import OUT, export
+
+    typer.echo(f"{export(parse_knessets(knessets), per_type)} files in {OUT}")
+
+
+@app.command()
 def embed(
     knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
     limit: int = typer.Option(0, help="Embed at most this many chunks (0: all), e.g. 1000"),

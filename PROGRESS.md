@@ -215,3 +215,9 @@
 
 - LLM provider and models (decided 19 Nov 2026, start of Phase 5): **Anthropic Claude**. Bulk enrichment (Phase 5 tier 3): **Claude Haiku 5.5** (`claude-haiku-5-5`) via the Batch API, after a 500-chunk benchmark and the user's confirmation of the projected cost (rough estimate ≈ $55 for the ≈ 440k distinct priority-1 chunks, ±50% until Hebrew token counts are measured). Agents (Phase 7): **Claude Opus 5.5** (`claude-opus-5-5`) for the Orchestrator and Summarizer, **Claude Sonnet 5.5** (`claude-sonnet-5-5`) for the Analyst, Researcher and Verifier.
 - Handle PDF-only documents? **No** (decided 18 Nov 2026 after the Phase 3 gap report; revisit in Phase 7 if bill wording or query answers are needed). Other decisions: defaults still apply.
+
+### Plan change (user, Phase 5): structure + NER instead of topic labeling
+- Topic labeling (hand and LLM) is paused; the code stays (`topics-teach`, `label`) but is not run.
+- Topics come from the documents' own markup and metadata (`<< נושא >>`, item, bill and query titles).
+- The only model-based NLP is entity extraction (people, organizations, other named things), plus attendance lists parsed directly.
+- Per-type ingestion is decided after reading `eval/samples/` (`knesset samples`).
