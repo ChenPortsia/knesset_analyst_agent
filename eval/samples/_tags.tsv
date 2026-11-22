@@ -1,0 +1,38 @@
+parent_type	group_type	tag	count
+bill	הצעת חוק לדיון מוקדם	יור	10
+bill	הצעת חוק לדיון מוקדם	דובר_המשך	7
+committee_session	חומר רקע	אורח	1630
+committee_session	חומר רקע	דובר	1065
+committee_session	חומר רקע	נושא	256
+committee_session	חומר רקע	דובר_המשך	200
+committee_session	חומר רקע	יור	173
+committee_session	חומר רקע	סיום	122
+committee_session	חומר רקע	קריאה	60
+committee_session	חומר רקע	הפסקה	6
+committee_session	פרוטוקול ועדה	דובר	198501
+committee_session	פרוטוקול ועדה	אורח	178875
+committee_session	פרוטוקול ועדה	דובר_המשך	55629
+committee_session	פרוטוקול ועדה	נושא	33872
+committee_session	פרוטוקול ועדה	סיום	18309
+committee_session	פרוטוקול ועדה	קריאה	17791
+committee_session	פרוטוקול ועדה	הצח	10528
+committee_session	פרוטוקול ועדה	הפסקה	6837
+committee_session	פרוטוקול ועדה	יור	5175
+committee_session	פרוטוקול ועדה	מנהל	2338
+committee_session	פרוטוקול ועדה	הלסי	1020
+committee_session	פרוטוקול ועדה	אחרי_כן	22
+committee_session	פרוטוקול ועדה	יו"ר	11
+committee_session	פרוטוקול ועדה	אור	7
+plenum_session	דברי הכנסת	דובר_המשך	83874
+plenum_session	דברי הכנסת	דובר	45347
+plenum_session	דברי הכנסת	קריאה	37802
+plenum_session	דברי הכנסת	הצח	5860
+plenum_session	דברי הכנסת	נושא	5081
+plenum_session	דברי הכנסת	הלסי	1482
+plenum_session	דברי הכנסת	סיום	829
+plenum_session	דברי הכנסת	יור	577
+plenum_session	דברי הכנסת	שאילתה	573
+plenum_session	דברי הכנסת	הפסקה	191
+plenum_session	דברי הכנסת	אחרי_כן	52
+plenum_session	דברי הכנסת	מנהל	31
+plenum_session	דברי הכנסת	דובר המשך	6

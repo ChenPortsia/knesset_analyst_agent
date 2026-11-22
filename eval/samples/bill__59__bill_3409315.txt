@@ -1,0 +1,18 @@
+doc_id: bill:3409315
+parent_type: bill
+group_type: 59 חומר רקע
+knesset: 25
+date: 2023-10-24
+url: https://fs.knesset.gov.il/25\law\25_ls_bk_3409315.docx
+chars: 1,253
+
+The President | הנשיא
+Asian Development Bank | הבנק האסיאני לפיתוח
+P. O. Box 789 | ת"ד 789
+Manila, Philippines | מנילה, פיליפינים
+Dear Mr. President: | אדוני הנשיא הנכבד,
+Declaration of retention of right to tax salaries and emoluments paid by ADB to citizens or nationals of Israel | הצהרה בדבר שמירה על הזכות למסות משכורות ותגמולים שמשלם הבנק האסיאני לפיתוח לאזרחי ישראל
+Pursuant to with paragraph 2 of Article 56 of the Agreement Establishing the Asian Development Bank, the State of Israel retains for itself and its political subdivisions the right to tax salaries and emoluments paid by the Bank to a Director, alternate, officer or employee of the Bank, including an expert performing a mission for the Bank, who are Israeli citizens or nationals for income accrued in Israel within the meaning of the Israeli legislation on income tax. | בהתאם לס"ק 2 לסעיף 56 להסכם בדבר הקמת הבנק האסיאני לפיתוח, מדינת ישראל שומרת לעצמה וליחידות המשנה המדיניות שלה את הזכות למסות משכורות ותגמולים שמשלם הבנק לדירקטור, חליף, נושא משרה או עובד הבנק, לרבות מומחה המבצע משימה עבור הבנק, שהם אזרחי ישראל על הכנסה שנצמחה בישראל כמשמעותו בחקיקה הישראלית בנושא מס הכנסה.
+Sincerely, | שלך,
+FOR AND ON BEHALF OF | בשם ומטעם
+______________________ | ______________________
