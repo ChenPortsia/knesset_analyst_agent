@@ -221,3 +221,9 @@
 - Topics come from the documents' own markup and metadata (`<< נושא >>`, item, bill and query titles).
 - The only model-based NLP is entity extraction (people, organizations, other named things), plus attendance lists parsed directly.
 - Per-type ingestion is decided after reading `eval/samples/` (`knesset samples`).
+
+### Finding from `eval/samples/`: speaker names were lost in .docx extraction
+- The Knesset puts speaker lines (`<< יור >>`, many `<< דובר >>`) in Word content controls (`w:sdt`). python-docx's `Paragraph.text` and the body loop skipped them. One 81k-character committee protocol kept only 3 tags; plenum chair lines were missing too.
+- Fix: `docx_text` reads every `w:t`, including inline and block content controls (test added).
+- Rerun: `make extract ARGS="--redo docx"`, then `make chunk`, `make embed`, `uv run knesset links`. Chunks whose text did not change keep their embeddings (deduplicated by `chunk_hash`).
+- The speaker-resolution numbers above (43%) predate this fix.

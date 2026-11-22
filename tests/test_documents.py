@@ -100,6 +100,37 @@ def test_docx_text_keeps_document_order():
     assert d.docx_text(data).split("\n") == ["פתיחה", "סיום", "שם | תפקיד", 'דנה | יו"ר']
 
 
+def test_docx_text_reads_content_controls():
+    """Speaker names sit in Word content controls (w:sdt), inline and as whole paragraphs."""
+    from docx.oxml import parse_xml
+
+    w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    document = docx.Document()
+    document.add_paragraph("פתיחה")
+    document.add_paragraph()._p.append(
+        parse_xml(
+            f"<w:sdt {w}><w:sdtContent><w:r><w:t>"
+            "&lt;&lt; דובר &gt;&gt; משה כהן: &lt;&lt; דובר &gt;&gt;"
+            "</w:t></w:r></w:sdtContent></w:sdt>"
+        )
+    )
+    document.element.body.insert(
+        2,
+        parse_xml(
+            f"<w:sdt {w}><w:sdtContent><w:p><w:r><w:t>"
+            "&lt;&lt; יור &gt;&gt; דנה: &lt;&lt; יור &gt;&gt;"
+            "</w:t></w:r></w:p></w:sdtContent></w:sdt>"
+        ),
+    )
+    buf = io.BytesIO()
+    document.save(buf)
+    assert d.docx_text(buf.getvalue()).split("\n") == [
+        "פתיחה",
+        "<< דובר >> משה כהן: << דובר >>",
+        "<< יור >> דנה: << יור >>",
+    ]
+
+
 @pytest.mark.skipif(not HAS_SOFFICE, reason="LibreOffice not installed")
 def test_soffice_text(tmp_path):
     data = to_doc(make_docx(["פרוטוקול מס' 12", "היו״ר: שלום לכולם"]), tmp_path)
@@ -289,3 +320,9 @@ def test_extract_end_to_end(db, tmp_path):
     ]
     lo_profiles = {p for p in Path(tempfile.gettempdir()).glob("knesset-lo-profile-*")}
     assert set(Path(tempfile.gettempdir()).glob("knesset-*")) - before - lo_profiles == set()
+
+    # --redo docx extracts the done .docx documents again; other types keep their status.
+    assert run(redo="docx") == {"done": 3}  # the failed one stays failed
+    assert q("select status from text.documents where doc_id = 'committee_session:3'") == [
+        ("done",)
+    ]

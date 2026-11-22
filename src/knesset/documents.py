@@ -18,16 +18,15 @@ import tempfile
 import unicodedata
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import asyncpg
 import docx
 import structlog
-from docx.table import Table
-from docx.text.paragraph import Paragraph
 
 from knesset import log as logs
 from knesset.config import settings
-from knesset.db import migrate
+from knesset.db import connect, migrate
 from knesset.odata import GeoBlockedError, OData
 from knesset.sync import db_pool, record_failure
 
@@ -201,17 +200,37 @@ def detect(data: bytes) -> str:
     return "other"
 
 
+W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def para_text(p: Any) -> str:
+    """All text of a paragraph, including runs inside content controls (w:sdt), which the
+    Knesset uses for speaker names and python-docx's Paragraph.text skips."""
+    other = {f"{W}tab": "\t", f"{W}br": "\n", f"{W}cr": "\n"}
+    return "".join(
+        (el.text or "") if el.tag == f"{W}t" else other[el.tag] for el in p.iter(f"{W}t", *other)
+    )
+
+
+def blocks(parent: Any) -> list[str]:
+    """Paragraphs and table rows in document order, descending into block content controls."""
+    lines = []
+    for el in parent.iterchildren():
+        if el.tag == f"{W}p":
+            lines.append(para_text(el))
+        elif el.tag == f"{W}tbl":
+            for row in el.iterchildren(f"{W}tr"):
+                cells = [" ".join(blocks(tc)).strip() for tc in row.iterchildren(f"{W}tc")]
+                lines.append(" | ".join(cells))
+        elif el.tag == f"{W}sdt":
+            for content in el.iterchildren(f"{W}sdtContent"):
+                lines.extend(blocks(content))
+    return lines
+
+
 def docx_text(data: bytes) -> str:
     """Body paragraphs and tables in document order (headers and footers are not in the body)."""
-    document = docx.Document(io.BytesIO(data))
-    lines = []
-    for block in document.element.body.iterchildren():
-        if block.tag.endswith("}p"):
-            lines.append(Paragraph(block, document).text)
-        elif block.tag.endswith("}tbl"):
-            for row in Table(block, document).rows:
-                lines.append(" | ".join(cell.text.strip() for cell in row.cells))
-    return "\n".join(lines)
+    return "\n".join(blocks(docx.Document(io.BytesIO(data)).element.body))
 
 
 async def soffice_text(data: bytes, kind: str, slots: asyncio.Queue) -> str:
@@ -290,9 +309,20 @@ async def extract(
     limit: int | None = None,
     max_priority: int = 4,
     api: OData | None = None,
+    redo: str | None = None,
 ) -> Counter:
-    """Extract pending documents (in `knessets`, or all when None), by priority."""
+    """Extract pending documents (in `knessets`, or all when None), by priority. `redo` (a
+    detected type, e.g. 'docx') first queues the done documents of that type again; their text
+    stays until replaced, and unchanged text keeps its chunks and embeddings."""
     migrate()
+    if redo:
+        with connect() as conn:
+            conn.execute(
+                """update text.documents set status = 'pending', attempts = 0
+                   where status = 'done' and detected_type = %s and priority <= %s
+                     and (%s::int[] is null or knesset_num = any(%s))""",
+                (redo, max_priority, knessets, knessets),
+            )
     with logs.run("extract", knessets=knessets, limit=limit, max_priority=max_priority) as run:
         totals: Counter = Counter()
         async with api or OData() as api, db_pool() as pool:

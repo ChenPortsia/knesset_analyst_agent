@@ -24,7 +24,7 @@ The full plan is in `PLAN.md`. Status per phase is in `PROGRESS.md`.
 - `make sync` / `sync-full` / `sync-deletes` / `fixtures` — OData load; needs an Israeli IP, so run natively on the Mac
 - `make dbt` — `knesset dbt build` (marts in schema `marts`; any dbt command: `uv run knesset dbt <args>`)
 - `make registry` — rebuild `text.documents` from the synced `KNS_Document*` rows
-- `make extract ARGS="--priority 1"` — download + extract Word files in the app container (LibreOffice); needs an Israeli IP
+- `make extract ARGS="--priority 1"` — download + extract Word files in the app container (LibreOffice); needs an Israeli IP (`--redo docx` re-extracts done .docx files)
 - `make chunk` — chunk extracted documents and resolve speakers (native)
 - `make speakers` — re-resolve chunk speakers to `dim_person` in place (embeddings untouched)
 - `make embed ARGS="--limit 1000"` — bge-m3 embeddings on the local GPU (native, `embed` extra); `--index` builds HNSW

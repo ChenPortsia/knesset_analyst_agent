@@ -159,12 +159,15 @@ def extract(
         help="Only priorities up to this (1 committee protocols, "
         "2 plenum protocols, 3 bills, 4 rest)",
     ),
+    redo: str = typer.Option("", help="Re-extract done documents of this type, e.g. docx"),
 ) -> None:
     """Download and extract pending Word documents (needs an Israeli IP)."""
     from knesset.documents import extract as run_extract
 
     try:
-        totals = asyncio.run(run_extract(parse_knessets(knessets), limit or None, priority))
+        totals = asyncio.run(
+            run_extract(parse_knessets(knessets), limit or None, priority, redo=redo or None)
+        )
     except odata.GeoBlockedError as e:
         typer.echo(f"ERR  {e}. Run extract from an Israeli connection.", err=True)
         raise typer.Exit(2) from e
