@@ -35,6 +35,7 @@ TYPES = {  # model label → chunk_entities.type; dates (TIMEX) and titles (TTL)
 }
 PREFIXES = "בהוכלמש"  # one-letter Hebrew prefixes: במשרד → משרד, והליכוד → ליכוד → הליכוד
 MIN_SCORE = 0.5
+ALIASES = {"ביבי": "בנימין נתניהו"}
 
 # texts → per text: [{"entity_group", "score", "start", "end"}]
 Tagger = Callable[[list[str]], list[list[dict[str, Any]]]]
@@ -63,29 +64,48 @@ def ner_text(text: str) -> str:
 
 
 def candidates(surface: str) -> list[str]:
-    """The name, and the name without one or two prefix letters."""
+    """The name, and the name without one or two prefix letters. The article ה stays: after
+    ב/ל/כ it is implied, so בכנסת → הכנסת first, then כנסת."""
     out = [surface]
-    two = surface[:1] in ("ו", "ש")  # two-letter prefixes start with ו or ש: וה, וב, של
+    two = surface[:1] in ("ו", "ש")  # two-letter prefixes start with ו or ש: וב, של, שב
     for k in (1, 2) if two else (1,):
         rest = surface[k:]
-        if len(rest) >= 2 and all(ch in PREFIXES for ch in surface[:k]):
-            out += [rest, "ה" + rest] if surface[k - 1] in "בלכ" else [rest]
+        if len(rest) >= 2 and all(ch in PREFIXES and ch != "ה" for ch in surface[:k]):
+            out += ["ה" + rest, rest] if surface[k - 1] in "בלכ" else [rest]
     return out
 
 
+def fold(name: str) -> str:
+    """Names compared without geresh or quotes: סמוטריץ' = סמוטריץ."""
+    return " ".join(re.sub("['\"׳״`]", "", name).split())
+
+
 class Linker:
-    """Unambiguous links: a person name that resolves to one active person, or a faction."""
+    """Unambiguous links. A person: the full name, or a last name alone, that belongs to exactly
+    one person holding a position at that date. A party: an exact faction name."""
 
     def __init__(self, conn: Any):
         self.people = People.load(conn)
         self.full_names = dict(conn.execute("select person_id, full_name from marts.dim_person"))
+        self.by_name: dict[str, set[int]] = {}
+        for pid, (first, last) in self.people.names.items():
+            for key in (f"{first} {last}", last):
+                if key.strip():
+                    self.by_name.setdefault(fold(key), set()).add(pid)
         self.factions: dict[str, int] = {}
         for fid, name in conn.execute(
             "select distinct faction_id, faction_name from marts.fct_person_position"
             " where faction_id is not null"
         ):
-            self.factions.setdefault(" ".join(name.split()), fid)
+            self.factions.setdefault(fold(name), fid)
         self.memo: dict[tuple[str, str, int | None], tuple] = {}
+
+    def person(self, name: str, when: Any) -> int | None:
+        pid, conf = self.people.resolve(ALIASES.get(name, name), when, set())
+        if pid is not None and conf >= 0.6:
+            return pid
+        active = {p for p in self.by_name.get(fold(name), set()) if self.people.active(p, when)}
+        return next(iter(active)) if len(active) == 1 else None
 
     def link(self, kind: str, surface: str, when: Any) -> tuple[str, str | None, int | None]:
         """(normalized, ref_table, ref_id)."""
@@ -93,13 +113,11 @@ class Linker:
         if key not in self.memo:
             self.memo[key] = (surface, None, None)
             for name in candidates(surface):
-                if kind == "person":
-                    pid, conf = self.people.resolve(name, when, set())
-                    if pid is not None and conf >= 0.6:
-                        self.memo[key] = (self.full_names.get(pid, name), "dim_person", pid)
-                        break
-                elif kind == "org" and name in self.factions:
-                    self.memo[key] = (name, "dim_faction", self.factions[name])
+                if kind == "person" and (pid := self.person(name, when)) is not None:
+                    self.memo[key] = (self.full_names.get(pid, name), "dim_person", pid)
+                    break
+                if kind == "org" and fold(name) in self.factions:
+                    self.memo[key] = (name, "dim_faction", self.factions[fold(name)])
                     break
         return self.memo[key]
 
