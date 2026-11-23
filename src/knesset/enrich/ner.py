@@ -81,17 +81,23 @@ def fold(name: str) -> str:
 
 
 class Linker:
-    """Unambiguous links. A person: the full name, or a last name alone, that belongs to exactly
-    one person holding a position at that date. A party: an exact faction name."""
+    """Unambiguous links. A person: the full name (any first-name word with the last name), or a
+    last name alone that is nobody's first name, belonging to exactly one person holding a
+    position at that date. A party: an exact faction name."""
 
     def __init__(self, conn: Any):
         self.people = People.load(conn)
         self.full_names = dict(conn.execute("select person_id, full_name from marts.dim_person"))
+        first_words = {fold(w) for first, _ in self.people.names.values() for w in first.split()}
         self.by_name: dict[str, set[int]] = {}
         for pid, (first, last) in self.people.names.items():
-            for key in (f"{first} {last}", last):
-                if key.strip():
-                    self.by_name.setdefault(fold(key), set()).add(pid)
+            if not last:
+                continue
+            keys = {f"{first} {last}"} | {f"{w} {last}" for w in first.split()}  # middle names
+            if fold(last) not in first_words:  # בצלאל alone is סמוטריץ, not אברהם בצלאל
+                keys.add(last)
+            for key in keys:
+                self.by_name.setdefault(fold(key), set()).add(pid)
         self.factions: dict[str, int] = {}
         for fid, name in conn.execute(
             "select distinct faction_id, faction_name from marts.fct_person_position"

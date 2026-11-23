@@ -12,13 +12,17 @@ NAMES = {
     "סמוטריץ": "PER",
     "כץ": "PER",
     "בכנסת": "ORG",
+    "אריה דרעי": "PER",
+    "בצלאל": "PER",
     "הכנסת": "ORG",
 }
 PEOPLE = """insert into marts.dim_person values
     (1, 'בנימין נתניהו', array['בנימין נתניהו'], 'בנימין', 'נתניהו'),
     (2, 'בצלאל סמוטריץ''', array['בצלאל סמוטריץ'''], 'בצלאל', 'סמוטריץ'''),
     (3, 'ישראל כץ', array['ישראל כץ'], 'ישראל', 'כץ'),
-    (4, 'חיים כץ', array['חיים כץ'], 'חיים', 'כץ')"""
+    (4, 'חיים כץ', array['חיים כץ'], 'חיים', 'כץ'),
+    (5, 'אריה מכלוף דרעי', array['אריה מכלוף דרעי'], 'אריה מכלוף', 'דרעי'),
+    (6, 'אברהם בצלאל', array['אברהם בצלאל'], 'אברהם', 'בצלאל')"""
 
 
 def fake_tagger(texts):
@@ -49,7 +53,7 @@ def test_run_ner(db):
         conn.execute("""create table marts.fct_person_position as
             select p::bigint person_id, 10::bigint faction_id, 'הליכוד'::text faction_name,
                    '2022-11-15'::timestamp start_date, null::timestamp finish_date
-            from generate_series(1, 4) p""")
+            from generate_series(1, 6) p""")
         conn.execute("""insert into text.documents (doc_id, source_table, parent_type, url,
                             status, knesset_num, doc_date)
                         values ('d:1', 'x', 'committee_session', 'u', 'done', 25, '2024-01-01')""")
@@ -59,13 +63,14 @@ def test_run_ner(db):
             (2, "turns", "ראש הממשלה בנימין נתניהו. ירושלים"),
             (3, "turns", "<< סיום >> הישיבה ננעלה. << סיום >>"),
             (4, "turns", "סמוטריץ, כץ דיברו בכנסת. הכנסת"),
+            (5, "turns", "אריה דרעי ובצלאל, בצלאל"),
         ]:
             conn.execute(
                 """insert into text.chunks (doc_id, ord, text, n_tokens, chunk_hash, meta)
                    values ('d:1', %s, %s, 10, md5(%s), jsonb_build_object('kind', %s::text))""",
                 (ord_, text, text, kind),
             )
-    done = {"chunks": 4, "entities": 9, "linked": 3, "prefixes_merged": 2}
+    done = {"chunks": 5, "entities": 11, "linked": 4, "prefixes_merged": 2}
     assert run_ner([25], tagger=fake_tagger) == done
     assert run_ner([25], tagger=fake_tagger) == dict.fromkeys(done, 0)
     with connect() as conn:
@@ -85,4 +90,6 @@ def test_run_ner(db):
         (4, "org", "הכנסת", "הכנסת", None, None),
         (4, "person", "כץ", "כץ", None, None),  # two people named כץ: not linked
         (4, "person", "סמוטריץ", "בצלאל סמוטריץ'", "dim_person", 2),  # last name, geresh
+        (5, "person", "אריה דרעי", "אריה מכלוף דרעי", "dim_person", 5),  # middle name
+        (5, "person", "בצלאל", "בצלאל", None, None),  # also a first name: not linked
     ]
