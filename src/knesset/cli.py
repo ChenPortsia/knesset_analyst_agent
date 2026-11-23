@@ -225,6 +225,18 @@ def structure(
 
 
 @app.command()
+def ner(
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+    limit: int = typer.Option(0, help="Stop after this many chunks (0: no limit)"),
+) -> None:
+    """Named entities in chunks (DictaBERT-NER on the local GPU), linked to people/factions."""
+    from knesset.enrich.ner import run_ner
+
+    totals = run_ner(parse_knessets(knessets), limit or None)
+    typer.echo(", ".join(f"{k} {v:,}" for k, v in totals.items()))
+
+
+@app.command()
 def topics() -> None:
     """Load the topic taxonomy (src/knesset/enrich/topics.yaml) into text.topics."""
     from knesset.enrich.topics import load_topics

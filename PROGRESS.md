@@ -234,3 +234,10 @@
 - `text.section_speakers`: words and turns per speaker per section, speakers resolved to `dim_person` as on chunks. Answers "share of the session per agenda item / per speaker / per faction".
 - `text.participants`: committee attendance lists (name, list heading, description, organization = last comma part; person_id for members, exact matches for others). The transcription service is skipped.
 - Chunks and embeddings are untouched: the tables are built from `text.documents`.
+
+### Phase 5, step 3: NER (`make ner`)
+- Model: `dicta-il/dictabert-ner` through the transformers pipeline (aggregation "simple", stride 64), on the local GPU. The model card could not be read from the cloud session (huggingface.co is blocked there): check its license and labels on the Mac before the full run.
+- Input: chunk text without speaker lines and markup (speakers are already entities); header chunks skipped (attendance is in `text.participants`).
+- Labels kept: PER→person, ORG→org, GPE/LOC→place, FAC, EVE, DUC, WOA, ANG, MISC; dates (TIMEX) and titles (TTL) dropped; score ≥ 0.5.
+- Links: person → `dim_person` when the name (or the name without a Hebrew prefix letter) resolves to one person; org → faction id on an exact faction name. Other entities keep their surface form.
+- Resumable: `text.chunk_ner` lists the chunks read; re-chunked chunks are read again.
