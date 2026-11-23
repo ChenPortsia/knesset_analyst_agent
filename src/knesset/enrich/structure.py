@@ -141,6 +141,8 @@ def parse_participants(header: str) -> list[Participant]:
             grp = line.rstrip(":").strip()
         elif line and not (grp or "").startswith(SKIP_GROUPS):
             parts = [x.strip() for x in line.split("|") if x.strip() not in ("", "–", "-")]
+            if not parts:  # an empty table row
+                continue
             if len(parts) == 1:
                 name, _, desc = parts[0].partition(" – ")
             else:
