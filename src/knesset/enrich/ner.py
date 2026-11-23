@@ -44,7 +44,7 @@ log = structlog.get_logger()
 def load_tagger(device: str) -> Tagger:
     from transformers import pipeline  # the `embed` extra
 
-    nlp = pipeline("ner", model=MODEL, aggregation_strategy="simple", device=device, stride=64)
+    nlp = pipeline("ner", model=MODEL, aggregation_strategy="first", device=device, stride=64)
 
     def tag(texts: list[str]) -> list[list[dict[str, Any]]]:
         keep = [i for i, t in enumerate(texts) if t.strip()]  # the model fails on empty text
@@ -119,6 +119,35 @@ def entities(
     return out
 
 
+def merge_prefixes(conn: Any) -> int:
+    """Unlinked names written with a prefix take the form without it when that form was also
+    found: בישראל, לישראל → ישראל; בחוק הביטוח הלאומי → חוק הביטוח הלאומי."""
+    names = {
+        (t, n)
+        for t, n in conn.execute(
+            "select distinct type, normalized from text.chunk_entities"
+            " where source = 'ner' and ref_id is null"
+        )
+    }
+    pairs = [
+        (t, n, base)
+        for t, n in names
+        for base in [next((c for c in candidates(n)[1:] if len(c) >= 3 and (t, c) in names), None)]
+        if base
+    ]
+    with conn.cursor() as cur:
+        cur.execute("create temp table _pre (type text, name text, base text) on commit drop")
+        with cur.copy("copy _pre from stdin") as copy:
+            for row in pairs:
+                copy.write_row(row)
+        cur.execute(
+            """update text.chunk_entities e set normalized = p.base from _pre p
+               where e.source = 'ner' and e.ref_id is null
+                 and e.type = p.type and e.normalized = p.name"""
+        )
+        return cur.rowcount
+
+
 def run_ner(
     knessets: list[int] | None, limit: int | None = None, tagger: Tagger | None = None
 ) -> dict[str, int]:
@@ -136,7 +165,7 @@ def run_ner(
                    left join text.chunk_ner n using (chunk_id)
                    where n.chunk_id is null and c.meta->>'kind' <> 'header'
                      and (%(k)s::int[] is null or d.knesset_num = any(%(k)s))
-                   order by c.chunk_id limit %(n)s""",
+                   order by c.chunk_id desc limit %(n)s""",
                 {"k": knessets, "n": take},
             ).fetchall()
             if not rows:
@@ -169,6 +198,7 @@ def run_ner(
             totals["entities"] += len(ents)
             totals["linked"] += sum(e[5] is not None for e in ents)
             log.info("ner_progress", **totals)
+        totals["prefixes_merged"] = merge_prefixes(conn)
         run.rows_in, run.rows_out = totals["chunks"], totals["entities"]
         log.info("ner_done", **totals)
     return totals

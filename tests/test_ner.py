@@ -3,7 +3,13 @@ import re
 from knesset.db import connect
 from knesset.enrich.ner import candidates, ner_text, run_ner
 
-NAMES = {"בנימין נתניהו": "PER", "בליכוד": "ORG", "משרד האוצר": "ORG", "ירושלים": "GPE"}
+NAMES = {
+    "בנימין נתניהו": "PER",
+    "בליכוד": "ORG",
+    "משרד האוצר": "ORG",
+    "בירושלים": "GPE",
+    "ירושלים": "GPE",
+}
 
 
 def fake_tagger(texts):
@@ -12,7 +18,7 @@ def fake_tagger(texts):
         [
             {"entity_group": label, "score": 0.99, "start": m.start(), "end": m.end()}
             for name, label in NAMES.items()
-            for m in re.finditer(name, text)
+            for m in re.finditer(rf"(?<!\w){name}", text)  # whole words, as the model
         ]
         for text in texts
     ]
@@ -38,8 +44,8 @@ def test_run_ner(db):
                         values ('d:1', 'x', 'committee_session', 'u', 'done', 25, '2024-01-01')""")
         for ord_, kind, text in [
             (0, "header", "ירושלים"),
-            (1, "turns", "<< דובר >> בנימין נתניהו: << דובר >>\nבליכוד ובמשרד האוצר בירושלים."),
-            (2, "turns", "ראש הממשלה בנימין נתניהו."),
+            (1, "turns", "<< דובר >> בנימין נתניהו: << דובר >>\nבליכוד, משרד האוצר, בירושלים."),
+            (2, "turns", "ראש הממשלה בנימין נתניהו. ירושלים"),
             (3, "turns", "<< סיום >> הישיבה ננעלה. << סיום >>"),
         ]:
             conn.execute(
@@ -47,8 +53,18 @@ def test_run_ner(db):
                    values ('d:1', %s, %s, 10, md5(%s), jsonb_build_object('kind', %s::text))""",
                 (ord_, text, text, kind),
             )
-    assert run_ner([25], tagger=fake_tagger) == {"chunks": 3, "entities": 4, "linked": 2}
-    assert run_ner([25], tagger=fake_tagger) == {"chunks": 0, "entities": 0, "linked": 0}
+    assert run_ner([25], tagger=fake_tagger) == {
+        "chunks": 3,
+        "entities": 5,
+        "linked": 2,
+        "prefixes_merged": 1,
+    }
+    assert run_ner([25], tagger=fake_tagger) == {
+        "chunks": 0,
+        "entities": 0,
+        "linked": 0,
+        "prefixes_merged": 0,
+    }
     with connect() as conn:
         rows = conn.execute(
             """select c.ord, e.type, e.surface, e.normalized, e.ref_table, e.ref_id
@@ -57,8 +73,9 @@ def test_run_ner(db):
         ).fetchall()
     # the speaker line is not read; the header chunk is skipped
     assert rows == [
+        (1, "place", "בירושלים", "ירושלים", None, None),  # the prefix form merged
         (1, "org", "בליכוד", "הליכוד", "dim_faction", 10),
-        (1, "place", "ירושלים", "ירושלים", None, None),
         (1, "org", "משרד האוצר", "משרד האוצר", None, None),
         (2, "person", "בנימין נתניהו", "בנימין נתניהו", "dim_person", 1),
+        (2, "place", "ירושלים", "ירושלים", None, None),
     ]
