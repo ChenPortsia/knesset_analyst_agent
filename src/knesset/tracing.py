@@ -50,6 +50,7 @@ def langfuse_exporter() -> object | None:
     return OTLPSpanExporter(
         endpoint=f"{s.langfuse_base_url.rstrip('/')}/api/public/otel/v1/traces",
         headers={"Authorization": f"Basic {token}"},
+        timeout=30,  # batches carry whole prompts; the 10 s default timed out on the Mac
     )
 
 
