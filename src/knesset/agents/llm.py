@@ -67,7 +67,10 @@ class Budget:
 def client() -> Any:
     import anthropic
 
-    return anthropic.Anthropic()  # ANTHROPIC_API_KEY from .env (never logged)
+    from knesset.config import settings
+
+    # the key is in .env, which pydantic-settings reads but the process environment lacks
+    return anthropic.Anthropic(api_key=settings().anthropic_api_key or None)
 
 
 def json_schema(model: type[BaseModel]) -> dict:
