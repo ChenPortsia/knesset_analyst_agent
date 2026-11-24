@@ -214,6 +214,26 @@
 
 **Open**: section speakers and entities are not yet aggregated per faction in marts (the agent can join them); org entities beyond factions (ministries, committees, companies) keep their names without ids.
 
+## Phase 6 — Retrieval layer and tools 🟡 in progress
+
+**Search (`search.py`, `knesset search`)**
+- Hybrid: bge-m3 vector top-50 (HNSW, `ef_search` 100, iterative scan) + keyword top-50 on the prefix-stripped `tsv_stripped` (`text.he_strip` on the query too), merged by reciprocal rank fusion (k = 60). Keywords only where torch is missing (the app container).
+- Filters: Knessets, committees, dates, document types, documents, speaker (person), speaker's faction, people mentioned (NER), any mentioned name, session items. Header chunks are excluded by default. Topic / sentiment / stance / speech-act filters are not built: those labels were not produced (Phase 5 plan change).
+- Identical text (the same background document attached to many sessions) counts once; `also_in` lists the other documents.
+- Neighbors: `ord ± n` in one query (default 1 for protocols, 0 otherwise), overlapping windows merged, chunks marked hit / before / after; text without protocol markup; `url`, `doc_id`, `chunk_id` on every result. Runs as `agent_ro`.
+- Measured on the Mac (Knessets 25–26, warm): hybrid 136–156 ms, keywords only 44 ms (target < 300 ms).
+
+**Tools (`tools/`)**: plain typed functions, each returning JSON with an `evidence` list, truncated text, and a log line + trace span per call (`tool_call`, `tool.<name>`).
+- common: `resolve_entity` (person, faction, committee, ministry, bill → ids).
+- research: `search_text`, `get_document`, `get_chunks`, `facets` (knesset, committee, month, doc type, speaker, faction, entity), `share_of_words` (words and turns per section, speaker, faction or committee, from `text.sections`).
+- summary: `get_document_summary` (sections with shares, top speakers, organizations, top entities — from markup, no model), `summarize` (map-reduce over search hits with the agent's model, injected).
+- sql: `describe_schema` (dbt schema.yml, bilingual), `sql_query` (one SELECT, `agent_ro`, read-only, 15 s, ≤ 200 rows), `make_chart` (Plotly figure spec).
+- verify: `get_chunks`, `rerun_sql`, `verdict`.
+- `tools/lc.py`: LangChain `StructuredTool`s per agent; bad filters and SQL errors go back to the agent as text.
+- Orchestrator state tools (`plan`, `delegate`, `ask_user`, `finish`) come with the graph in Phase 7.
+
+**Tests**: 79. Notebook `06_retrieval_tools`: latency over 5 queries × 3, best hits, every tool with shape checks.
+
 ## Changes to the plan
 
 - 22 Nov 2026, the user: topic labeling paused; topics from markup and metadata, NER as the only model step (Phase 5 above).

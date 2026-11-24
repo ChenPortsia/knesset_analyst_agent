@@ -9,6 +9,7 @@ dependencies = [
     "asyncpg",
     "dbt-postgres>=1.11.0",
     "httpx[http2]",
+    "langchain-core>=1.8.4",
     "pandas",
     "pgvector>=0.5.1",
     "psycopg[binary]",

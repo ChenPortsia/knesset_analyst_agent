@@ -72,7 +72,7 @@ fmt:
 	uv run ruff format .
 
 notebooks:
-	uv run jupytext --to ipynb --execute notebooks/[0-9]*.py
+	uv run --extra embed jupytext --to ipynb --execute notebooks/[0-9]*.py
 
 psql:
 	$(COMPOSE) exec db psql -U postgres -d knesset
