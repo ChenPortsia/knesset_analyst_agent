@@ -214,7 +214,7 @@
 
 **Open**: section speakers and entities are not yet aggregated per faction in marts (the agent can join them); org entities beyond factions (ministries, committees, companies) keep their names without ids.
 
-## Phase 6 — Retrieval layer and tools 🟡 in progress
+## Phase 6 — Retrieval layer and tools ✅ (tag `phase-6`)
 
 **Search (`search.py`, `knesset search`)**
 - Hybrid: bge-m3 vector top-50 (HNSW, `ef_search` 100, iterative scan) + keyword top-50 on the prefix-stripped `tsv_stripped` (`text.he_strip` on the query too), merged by reciprocal rank fusion (k = 60). Keywords only where torch is missing (the app container).
@@ -223,7 +223,10 @@
 - Neighbors: `ord ± n` in one query (default 1 for protocols, 0 otherwise), overlapping windows merged, chunks marked hit / before / after; text without protocol markup; `url`, `doc_id`, `chunk_id` on every result. Runs as `agent_ro`.
 - Memory: Postgres ran with Docker's default 128 MB of shared buffers while the HNSW index is 1.9 GB (chunks 14 GB), so any search past the hottest pages read from disk (1,000 neighbors: 13,016 pages read, 2.3 s). The db container now runs with `shared_buffers=3GB` (`DB_SHARED_BUFFERS`; Docker's VM has 8 GB on the Mac), `effective_cache_size=5GB`, and `pg_prewarm` preloaded (`make warm` loads the index once; autoprewarm restores it after restarts).
 - Selective filters (committee, speaker, faction, mentions, entity, items, documents) matching ≤ 20k chunks compare with them directly; larger sets use the index with the filter applied as it scans. Tried and dropped: exact distances over a whole big committee (Finance, 50,551 chunks: 563–3,390 ms from disk) and filtering the index's 1,000 nearest overall (only 2–13 of them were Finance chunks). The search log line names the path (`vector_path` index / exact).
-- Measured on the Mac (Knessets 25–26, warm, notebook 06): hybrid median 123 ms, p90 429 ms over 5 queries × 3; keywords only 44 ms (target < 300 ms).
+- Measured on the Mac (Knessets 25–26, notebook 06, index in memory):
+  - hybrid with neighbors, 5 queries × 3: median 140 ms (target < 300 ms ✅); warm runs 80–150 ms (encode ≈ 25, connect ≈ 15–20, vector ≈ 20, keyword 15–100, neighbors ≈ 10–15 ms);
+  - one large committee (Finance, 50,551 chunks): median 290 ms, max 302 ms (notebook limit 500 ms), mostly the filtered index scan (≈ 200 ms);
+  - outliers of 0.8–1.8 s are keyword ranking on a query's first run: a very common word (תקציב) matches many chunks whose rows are not cached (the 14 GB table exceeds the 3 GB buffers). `facets` with a query shows the same (1.7–2 s).
 
 **Tools (`tools/`)**: plain typed functions, each returning JSON with an `evidence` list, truncated text, and a log line + trace span per call (`tool_call`, `tool.<name>`).
 - common: `resolve_entity` (person, faction, committee, ministry, bill → ids).
@@ -234,7 +237,12 @@
 - `tools/lc.py`: LangChain `StructuredTool`s per agent; bad filters and SQL errors go back to the agent as text.
 - Orchestrator state tools (`plan`, `delegate`, `ask_user`, `finish`) come with the graph in Phase 7.
 
-**Tests**: 78. Notebook `06_retrieval_tools`: latency over 5 queries × 3, best hits, every tool with shape checks.
+**Tests**: 79. Notebook `06_retrieval_tools` (passed on the Mac): latency over 5 queries × 3, one-committee latency, best hits, every tool with shape checks. Finance Committee share of words by faction: non-MKs and unidentified speakers 47.7%, יש עתיד 12.5%, יהדות התורה 9.8%, הליכוד 7.5%; MKs without a faction on the day 1.7%.
+
+**Open**
+- Keyword ranking of very common words on a cold cache (above): rank fewer matches, or an index that stores positions (RUM), if it matters in Phase 7.
+- A connection per search (≈ 15–20 ms): the agents in Phase 7 should share a connection pool.
+- `summarize` needs the agent's model (Phase 7).
 
 ## Changes to the plan
 
