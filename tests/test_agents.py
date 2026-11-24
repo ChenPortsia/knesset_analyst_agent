@@ -46,6 +46,7 @@ class FakeClaude:
 
     def create(self, system, messages, **kw):
         agent = system.split("# ")[2].split(" ")[0]  # the agent prompt's title
+        self.cached = getattr(self, "cached", []) + [(agent, "tools" in kw, "cache_control" in kw)]
         results = [b for m in messages if m["role"] == "user" and isinstance(m["content"], list)
                    for b in m["content"]]  # fmt: skip
         with self.lock:
@@ -127,6 +128,9 @@ def test_full_graph(data):  # noqa: F811
     assert u["steps"] == 5 and u["calls"] == 8  # plan, 2+2 specialists, draft, 2 verifier
     assert u["cost_usd"] == pytest.approx(8 * (1000 * 2 + 100 * 10) / 1e6)
     assert len(result["trace_id"]) == 32
+    # only tool loops write the cache (their next call reads it); the one-shot draft does not
+    assert all(tools == cached for _, tools, cached in api.cached)
+    assert ("Orchestrator", False, False) in api.cached
 
 
 def test_verifier_fail_replans_once_then_caveats(data):  # noqa: F811

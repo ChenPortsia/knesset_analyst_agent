@@ -12,7 +12,6 @@ from knesset.agents.contracts import AgentResult, AgentTask, Evidence, Finding
 from knesset.agents.llm import Budget, LimitReached, tool_loop
 from knesset.config import settings
 from knesset.tools.lc import AGENT_TOOLS
-from knesset.tools.summary import summarize
 from knesset.tracing import tracer
 
 PROMPTS = Path(__file__).with_name("prompts")
@@ -41,27 +40,8 @@ def model_for(agent: str) -> str:
     return getattr(settings(), f"agent_{agent}_model")
 
 
-def tools(agent: str, budget: Budget, api: Any) -> list:
-    fns = list(AGENT_TOOLS[agent])
-    if agent == "summarizer":  # map-reduce with the summarizer's own model
-
-        class Text(BaseModel):
-            text: str
-
-        def llm(text: str) -> str:
-            out, _, _ = tool_loop(model_for("summarizer"), "Answer briefly.", text, Text, budget,
-                                  effort="low", api=api)  # fmt: skip
-            return out.text
-
-        def summarize_passages(
-            question: str, filters: dict[str, Any] | None = None, max_items: int = 12
-        ) -> dict:
-            """Map-reduce summary of the passages that best match a question: one note per
-            passage, then a summary citing chunk ids."""
-            return summarize(question, llm, filters, min(max_items, 15))
-
-        fns.append(summarize_passages)
-    return fns
+def tools(agent: str) -> list:
+    return list(AGENT_TOOLS[agent])
 
 
 def seen_refs(artifacts: list[dict]) -> set[tuple[str, str]]:
@@ -106,7 +86,7 @@ def run(task: AgentTask, budget: Budget, api: Any = None) -> AgentResult:
             budget.step(f"{agent} {task.task_id}")
             answer, usage, artifacts = tool_loop(
                 model_for(agent), prompt(agent), text, output, budget,
-                tools(agent, budget, api), EFFORT[agent], api,
+                tools(agent), EFFORT[agent], api,
             )  # fmt: skip
         except (LimitReached, RuntimeError, ValueError) as e:
             span.set_attribute("error", str(e))

@@ -8,7 +8,7 @@ from knesset.db import connect
 from knesset.tools.common import resolve_entity, truncate
 from knesset.tools.research import facets, get_chunks, get_document, search_text, share_of_words
 from knesset.tools.sql import check_select, describe_schema, make_chart, sql_query
-from knesset.tools.summary import get_document_summary, summarize
+from knesset.tools.summary import get_document_summary
 from knesset.tools.verify import rerun_sql, verdict
 
 MARTS = """
@@ -124,18 +124,6 @@ def test_document_summary(data):
     assert s["top_speakers"][0]["speaker"] == "דוד ביטן"
     assert s["organizations"] == [{"organization": "משרד האוצר", "people": 1}]
     assert s["top_entities"] == [{"type": "place", "name": "ירושלים", "mentions": 1}]
-
-
-def test_summarize_map_reduce(data):
-    prompts = []
-
-    def llm(prompt: str) -> str:
-        prompts.append(prompt)
-        return "סיכום" if "Notes from" in prompt else ("NONE" if "רכבת" not in prompt else "עיכוב")
-
-    out = json_ok(summarize("רכבת", llm, {"committee_ids": [7]}, max_items=3))
-    assert out["summary"] == "סיכום" and [n["note"] for n in out["notes"]] == ["עיכוב"]
-    assert len(prompts) == 2  # one map call per passage, one reduce call
 
 
 def test_sql_tools(data):

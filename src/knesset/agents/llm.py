@@ -5,7 +5,8 @@ to the question's budget.
   model); tools and the output schema go in the same request.
 - Forced tool choice is not available on these models: prompts say which tools to use.
 - Refusals fall back server-side (`fallbacks: "default"`).
-- Tools and system prompt are a stable prefix, cached with `cache_control`.
+- In tool loops the prefix is cached (`cache_control`): each call reads what the previous
+  one wrote. One-shot calls (no tools) skip it: a cache write costs 1.25× and is never read.
 """
 
 import json
@@ -138,7 +139,9 @@ def tool_loop(
             messages.append(
                 {"role": "user", "content": "Stop using tools: give your final answer now."}
             )
-        kwargs: dict[str, Any] = {"tools": tool_defs} if tool_defs else {}
+        kwargs: dict[str, Any] = (
+            {"tools": tool_defs, "cache_control": {"type": "ephemeral"}} if tool_defs else {}
+        )
         if last and tool_defs:
             kwargs["tool_choice"] = {"type": "none"}
         response = api.beta.messages.create(
@@ -150,7 +153,6 @@ def tool_loop(
                 "effort": effort,
                 "format": {"type": "json_schema", "schema": json_schema(output)},
             },
-            cache_control={"type": "ephemeral"},
             betas=[FALLBACK_BETA],
             fallbacks="default",
             **kwargs,

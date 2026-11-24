@@ -13,13 +13,12 @@ from knesset.tools.sql import describe_schema, make_chart, sql_query
 from knesset.tools.summary import get_document_summary
 from knesset.tools.verify import get_chunks, rerun_sql
 
-# summarize() takes the agent's model and is bound in Phase 7; the orchestrator's plan /
-# delegate / ask_user / finish act on the agent state and are built with the graph.
+# The orchestrator's plan / delegate / ask_user / finish are steps of the graph (agents/graph.py).
 AGENT_TOOLS: dict[str, list[Callable[..., dict]]] = {
     "orchestrator": [resolve_entity],
     "analyst": [describe_schema, sql_query, resolve_entity, make_chart],
     "researcher": [search_text, get_document, facets, share_of_words, resolve_entity],
-    "summarizer": [facets, share_of_words, get_document_summary],
+    "summarizer": [search_text, facets, share_of_words, get_document_summary, get_document],
     "verifier": [get_chunks, rerun_sql],  # its verdict is its structured answer
 }
 

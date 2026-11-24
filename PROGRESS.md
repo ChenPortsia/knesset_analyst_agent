@@ -262,12 +262,20 @@
 - Fixed on the way: Claude Opus 5.5 / Sonnet 5.5 cache reads cost 5% of the input price (the topic-labeling cost code assumed 10%).
 - First paid question (Mac): "כמה הצעות חוק עברו בכנסת ה-25?" → plan (1 analyst task) → SQL → verifier re-ran it → pass. Answer: 573, split into government 363 / private 199 / committee 11, with the SQL as source. $0.052, 7 calls, 4 steps, 24.7 s, trace in Phoenix. Fixes from it: the API key is passed from `.env` to the client; `knesset ask` keeps tool-call log lines in `logs/ask/` instead of the terminal.
 
+**First notebook-07 run (Mac, $2.75)** — read back from the Langfuse export:
+- 7/10 questions answered well with citations: 573 bills passed; Finance held the most committee sessions (1,154); the 2025 budget law passed 66–52 along coalition lines (faction table); about 5% of the Finance Committee's words went to the 2025 budget law (9% with the 2025 budget changes); Education got the most queries (176 of 1,580).
+- 3/10 failed the same way: the summarizer hit the 90 s limit before any finding (Haredi draft, construction waste, hostages in the plenum). The notebook's citation check (≥ 80%) failed, and the failing cell lost the notebook output (results are now saved as they arrive, and `knesset traces` reads questions back from Phoenix).
+- Cost by agent: summarizer $1.07 (68 calls: one Opus call per passage in its map-reduce tool), analyst $0.42, plan $0.40 (Opus, ~2.4 calls per question), researcher $0.37, draft $0.28 (Opus), verifier $0.20. Every call wrote the prompt cache, one-shot calls too.
+- Changes (the user chose all four): (A) the summarizer reads passages itself in one loop — the per-passage map-reduce tool is gone; (B) only tool loops use the prompt cache; (C) plan and draft on Sonnet 5.5; (D) the timeout is 150 s.
+
 ## Changes to the plan
 
+- 24 Nov 2026, the user: the per-question agent timeout is 150 s (PLAN §7 said 90 s): text questions finished at 91–98 s in the first notebook-07 run.
 - 22 Nov 2026, the user: topic labeling paused; topics from markup and metadata, NER as the only model step (Phase 5 above).
 - 18 Nov 2026, approved by the user: Phase 1 full-load target changed from < ~1 h to < ~4.5 h (WAF-limited to ~2 requests/s). PLAN.md §4 and §10 updated.
 
 ## Decisions (PLAN §13)
 
+- Orchestrator model (changed by the user, 24 Nov 2026): plan and draft run on **Claude Sonnet 5.5**, not Opus 5.5, to cut cost (they were 25% of the first notebook-07 run). The summarizer stays on Opus 5.5.
 - LLM provider and models (decided 19 Nov 2026, start of Phase 5): **Anthropic Claude**. Bulk enrichment (Phase 5 tier 3): **Claude Haiku 5.5** (`claude-haiku-5-5`) via the Batch API, after a 500-chunk benchmark and the user's confirmation of the projected cost (rough estimate ≈ $55 for the ≈ 440k distinct priority-1 chunks, ±50% until Hebrew token counts are measured). Not used in Phase 5 after the 22 Nov plan change (no paid enrichment ran); it stays the model if paid enrichment returns. Agents (Phase 7): **Claude Opus 5.5** (`claude-opus-5-5`) for the Orchestrator and Summarizer, **Claude Sonnet 5.5** (`claude-sonnet-5-5`) for the Analyst, Researcher and Verifier.
 - Handle PDF-only documents? **No** (decided 18 Nov 2026 after the Phase 3 gap report; revisit in Phase 7 if bill wording or query answers are needed). Other decisions: defaults still apply.

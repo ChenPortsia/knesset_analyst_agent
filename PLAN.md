@@ -206,7 +206,7 @@ A **supervisor (orchestrator) graph** in LangGraph delegates to specialist agent
 
 ### Guardrails
 
-- Max 12 agent steps and max 2 re-delegations per question, a per-question token and cost cap, and a 90 s overall timeout. When a limit is hit, answer with what's known and say so.
+- Max 12 agent steps and max 2 re-delegations per question, a per-question token and cost cap, and a 150 s overall timeout (90 s until 24 Nov 2026). When a limit is hit, answer with what's known and say so.
 - SQL runs only as `agent_ro`: SELECT only, auto `LIMIT 200`.
 - Agents never see other users' data. Chat history is per thread.
 - **A2A-ready contract:** every specialist exposes one entry point `run(task: AgentTask) -> AgentResult`, where:
