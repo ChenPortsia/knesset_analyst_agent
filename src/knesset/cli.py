@@ -319,6 +319,27 @@ def ask(
 
 
 @app.command()
+def traces(n: int = typer.Option(10, help="How many recent questions")) -> None:
+    """Recent agent questions from Phoenix: path, verdict, cost, steps and the answer."""
+    from datetime import datetime
+
+    from knesset.tracing import recent_questions
+
+    for q in reversed(recent_questions(n)):
+        start, end = q.get("start_time") or "", q.get("end_time") or ""
+        seconds = ""
+        if start and end:
+            t0, t1 = (datetime.fromisoformat(x.replace("Z", "+00:00")) for x in (start, end))
+            seconds = f"{(t1 - t0).total_seconds():.0f} s"
+        answer = str(q.get("answer") or q.get("output.value") or "")
+        typer.echo(f"\n=== {start[:19]}  {q.get('question', '')}")
+        typer.echo(f"path {q.get('path')} · verdict {q.get('verdict') or '-'} · "
+                   f"${float(q.get('cost_usd') or 0):.3f} · steps {q.get('steps')} · {seconds} · "
+                   f"cites {'[1]' in answer}")  # fmt: skip
+        typer.echo(answer[:700])
+
+
+@app.command()
 def topics() -> None:
     """Load the topic taxonomy (src/knesset/enrich/topics.yaml) into text.topics."""
     from knesset.enrich.topics import load_topics

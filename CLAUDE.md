@@ -35,6 +35,7 @@ The full plan is in `PLAN.md`. Status per phase is in `PROGRESS.md`.
 - `make ner ARGS="--limit 2000"` — named entities in chunks (DictaBERT-NER, local GPU, `embed` extra) → `text.chunk_entities` source `ner`; resumable via `text.chunk_ner`
 - `uv run --extra embed knesset search "…" [--k 5] [--keywords-only]` — hybrid search with timings (debug)
 - `uv run --extra embed knesset ask "…"` — paid: ask the agents (streams steps; capped by `AGENT_MAX_COST_USD` per question); notebook 07 is capped at $5
+- `uv run knesset traces [--n 10]` — recent agent questions from Phoenix: path, verdict, cost, steps, answer
 - `uv run knesset topics` — load `src/knesset/enrich/topics.yaml` into `text.topics`
 - `uv run knesset label` — hand-label the gold set (`eval/labeled_chunks.jsonl`)
 - `uv run knesset topics-teach --n 500 [--dry-run]` — paid: LLM teacher labels (Batch API, capped by `TOPIC_BUDGET_USD`); `topics-collect`, `topics-eval`, `topics-apply`

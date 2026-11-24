@@ -79,3 +79,29 @@ def trace_in_phoenix(trace_id: str, wait_s: float = 10) -> bool:
 
 def trace_link(trace_id: str) -> str:
     return f"{settings().phoenix_url}/redirects/traces/{trace_id}"
+
+
+def flatten(d: dict, prefix: str = "") -> dict:
+    """Span attributes as flat dotted keys, whether the API nests them or not."""
+    out = {}
+    for k, v in d.items():
+        if isinstance(v, dict):
+            out |= flatten(v, f"{prefix}{k}.")
+        else:
+            out[f"{prefix}{k}"] = v
+    return out
+
+
+def recent_questions(n: int = 10, scan: int = 2000) -> list[dict]:
+    """The last n `question` spans in Phoenix with their attributes, newest first."""
+    url = f"{settings().phoenix_url}/v1/projects/{PROJECT}/spans"
+    resp = httpx.get(url, params={"limit": scan}, timeout=30)
+    resp.raise_for_status()
+    spans = [s for s in resp.json()["data"] if s.get("name") == "question"]
+    spans.sort(key=lambda s: s.get("start_time", ""), reverse=True)
+    out = []
+    for s in spans[:n]:
+        a = flatten(s.get("attributes") or {})
+        out.append(a | {"start_time": s.get("start_time"), "end_time": s.get("end_time"),
+                        "trace_id": (s.get("context") or {}).get("trace_id")})  # fmt: skip
+    return out

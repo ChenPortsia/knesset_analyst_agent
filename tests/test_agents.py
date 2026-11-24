@@ -200,3 +200,25 @@ def test_one_trace_per_question(data, monkeypatch):  # noqa: F811
             "orchestrator.finish"} <= names  # fmt: skip
     assert root.attributes["path"] == "plan → delegate → draft → verify → finish"
     assert root.attributes["verdict"] == "pass"
+
+
+def test_traces_cli(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from typer.testing import CliRunner
+
+    from knesset import tracing
+    from knesset.cli import app
+
+    spans = [
+        {"name": "question", "start_time": "2026-11-24T10:00:00Z",
+         "end_time": "2026-11-24T10:00:40Z", "context": {"trace_id": "t1"},
+         "attributes": {"question": "כמה?", "path": "plan → finish", "verdict": "pass",
+                        "cost_usd": 0.05, "steps": 4, "answer": "573 [1]"}},
+        {"name": "agent.analyst", "attributes": {}},
+    ]  # fmt: skip
+    response = NS(json=lambda: {"data": spans}, raise_for_status=lambda: None)
+    monkeypatch.setattr(tracing.httpx, "get", lambda *a, **k: response)
+    out = CliRunner().invoke(app, ["traces", "--n", "5"])
+    assert out.exit_code == 0, out.output
+    assert "path plan → finish · verdict pass · $0.050 · steps 4 · 40 s · cites True" in out.output

@@ -35,7 +35,9 @@ QUESTIONS = [
 ]
 
 # %%
+import json
 import time
+from datetime import datetime
 
 import pandas as pd
 
@@ -50,6 +52,14 @@ tracing.setup()
 tracing.instrument_llm()
 s = settings()
 spent = 0.0
+# every result is written as it arrives, so a failed check never loses a paid run
+saved = s.log_dir / "notebook07" / f"{datetime.now():%Y-%m-%d_%H%M}.jsonl"
+saved.parent.mkdir(parents=True, exist_ok=True)
+
+
+def save(kind: str, row: dict) -> None:
+    with saved.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"kind": kind, **row}, ensure_ascii=False, default=str) + "\n")
 
 
 def room(worst: float) -> bool:
@@ -68,6 +78,7 @@ def specialist(agent: str, instruction: str, context: str = ""):
                      filters={"knessets": KNESSETS})  # fmt: skip
     result = run(task, budget)
     spent += budget.usage.cost_usd
+    save("specialist", {"agent": agent, "instruction": instruction, **result.model_dump()})
     u, seconds = budget.usage, time.monotonic() - started
     print(f"{agent}: {len(result.findings)} findings, ${u.cost_usd:.3f}, {u.calls} calls, "
           f"{seconds:.0f} s, error={result.error}")  # fmt: skip
@@ -151,9 +162,10 @@ for question in QUESTIONS:
         "steps": u["steps"], "seconds": u["seconds"], "trace_id": result["trace_id"],
         "answer": result["answer"],
     })  # fmt: skip
+    save("question", rows[-1] | {"sources_list": result["sources"]})
     print(f"\n### {question}\n{result['answer']}\n${u['cost_usd']:.3f} · {u['seconds']} s")
 runs = pd.DataFrame(rows)
-print(f"\nspent ${spent:.2f} in total")
+print(f"\nspent ${spent:.2f} in total; results in {saved}")
 runs.drop(columns=["answer", "trace_id"])
 
 # %%
