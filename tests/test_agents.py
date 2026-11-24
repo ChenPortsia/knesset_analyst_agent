@@ -172,3 +172,36 @@ def test_ask_cli(data, monkeypatch):  # noqa: F811
                  "[1] sql select count(*)", "8 calls · 5 steps"):  # fmt: skip
         assert line in out.output, out.output
     assert "tool_call" not in out.output  # tool calls go to the log file, not the terminal
+
+
+def test_one_trace_per_question(data):  # noqa: F811
+    """Every span of a question, the parallel specialists' too, is in the question's trace."""
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer = provider.get_tracer("test")
+    from knesset.agents import graph as g
+    from knesset.agents import specialist
+    from knesset.tools import common
+
+    for module in (g, specialist, common):
+        module.tracer = lambda *_: tracer
+    try:
+        run_graph(FakeClaude())
+    finally:
+        for module in (g, specialist, common):
+            module.tracer = trace.get_tracer
+    spans = exporter.get_finished_spans()
+    (root,) = [s for s in spans if s.name == "question"]
+    assert {s.context.trace_id for s in spans} == {root.context.trace_id}
+    names = {s.name for s in spans}
+    assert {"orchestrator.plan", "orchestrator.delegate", "handoff.analyst", "agent.analyst",
+            "handoff.researcher", "tool.sql_query", "tool.search_text", "orchestrator.verify",
+            "orchestrator.finish"} <= names  # fmt: skip
+    assert root.attributes["path"] == "plan → delegate → draft → verify → finish"
+    assert root.attributes["verdict"] == "pass"

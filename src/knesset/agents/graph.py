@@ -10,6 +10,7 @@
 - Limits (cost, steps, 90 s) end the run early with what is known, said so.
 """
 
+import contextvars
 import json
 import time
 import uuid
@@ -134,8 +135,13 @@ class Orchestrator:
                     span.set_attribute("to", t["agent"])
                     return client_for(t["agent"], self.api).run(task, self.budget).model_dump()
 
+            # each worker runs in a copy of this context, so its spans stay in the question's trace
+            contexts = [contextvars.copy_context() for _ in ready]
             with ThreadPoolExecutor(max_workers=4) as pool:
-                for t, result in zip(ready, pool.map(handoff, ready), strict=True):
+                results = pool.map(
+                    lambda ct: ct[0].run(handoff, ct[1]), zip(contexts, ready, strict=True)
+                )
+                for t, result in zip(ready, results, strict=True):
                     done[t["id"]] = result
         return {"results": earlier + list(done.values())}
 
@@ -188,17 +194,19 @@ class Orchestrator:
         return {"answer": answer, "sources": sources}
 
 
-def guarded(step: Any) -> Any:
+def guarded(step: Any, always: bool = False) -> Any:
     """A node that turns a hit limit, or a failed model call (refusal, unparsable answer), into
     state, so the graph goes on to finish with what it has."""
 
     def node(state: State) -> State:
-        if state.get("limit"):
+        if state.get("limit") and not always:  # finish always runs
             return {}
-        try:
-            return step(state)
-        except (LimitReached, RuntimeError, ValueError) as e:
-            return {"limit": str(e)[:300]}
+        with tracer().start_as_current_span(f"orchestrator.{step.__name__}") as span:
+            try:
+                return step(state)
+            except (LimitReached, RuntimeError, ValueError) as e:
+                span.set_attribute("limit", str(e)[:300])
+                return {"limit": str(e)[:300]}
 
     node.__name__ = step.__name__
     return node
@@ -208,7 +216,7 @@ def build(budget: Budget, api: Any = None) -> Any:
     o = Orchestrator(budget, api)
     g = StateGraph(State)
     for name in ("plan", "delegate", "draft", "verify", "finish"):
-        g.add_node(name, guarded(getattr(o, name)) if name != "finish" else o.finish)
+        g.add_node(name, guarded(getattr(o, name), always=name == "finish"))
     g.set_entry_point("plan")
     g.add_conditional_edges(
         "plan", lambda s: "finish" if s.get("limit") or not s.get("plan") else "delegate"
@@ -251,11 +259,17 @@ def ask(
         span.set_attribute("thread_id", state["thread_id"])
         span.set_attribute("question", question[:500])
         final: State = dict(state)
+        path = []
         for update in build(budget, api).stream(state, stream_mode="updates"):
             for node, change in update.items():
                 final.update(change or {})
+                path.append(node)
                 yield node, change or {}
+        span.set_attribute("path", " → ".join(path))
+        span.set_attribute("answer", final.get("answer", "")[:2000])
+        span.set_attribute("verdict", (final.get("verdict") or {}).get("status", ""))
         span.set_attribute("cost_usd", budget.usage.cost_usd)
+        span.set_attribute("steps", budget.steps)
         trace_id = format(span.get_span_context().trace_id, "032x")
     yield "done", {
         "answer": final.get("answer", ""),
