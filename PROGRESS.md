@@ -221,11 +221,12 @@
 - Filters: Knessets, committees, dates, document types, documents, speaker (person), speaker's faction, people mentioned (NER), any mentioned name, session items. Header chunks are excluded by default. Topic / sentiment / stance / speech-act filters are not built: those labels were not produced (Phase 5 plan change).
 - Identical text (the same background document attached to many sessions) counts once; `also_in` lists the other documents.
 - Neighbors: `ord ± n` in one query (default 1 for protocols, 0 otherwise), overlapping windows merged, chunks marked hit / before / after; text without protocol markup; `url`, `doc_id`, `chunk_id` on every result. Runs as `agent_ro`.
-- Measured on the Mac (Knessets 25–26, warm): hybrid 136–156 ms, keywords only 44 ms (target < 300 ms).
+- Selective filters (committee, speaker, faction, mentions, entity, items, documents) compare the query with the filtered chunks directly instead of the HNSW index: one committee took 1,991 ms through the index; exact distances over 60k chunks take ≈ 240 ms.
+- Measured on the Mac (Knessets 25–26, warm, notebook 06): hybrid median 123 ms, p90 429 ms over 5 queries × 3; keywords only 44 ms (target < 300 ms).
 
 **Tools (`tools/`)**: plain typed functions, each returning JSON with an `evidence` list, truncated text, and a log line + trace span per call (`tool_call`, `tool.<name>`).
 - common: `resolve_entity` (person, faction, committee, ministry, bill → ids).
-- research: `search_text`, `get_document`, `get_chunks`, `facets` (knesset, committee, month, doc type, speaker, faction, entity), `share_of_words` (words and turns per section, speaker, faction or committee, from `text.sections`).
+- research: `search_text`, `get_document`, `get_chunks`, `facets` (knesset, committee, month, doc type, speaker, faction, entity), `share_of_words` (words and turns per section, speaker, faction or committee, from `text.sections`; factions once per person and date — the first version timed out at 15 s; non-MKs apart from MKs without a faction).
 - summary: `get_document_summary` (sections with shares, top speakers, organizations, top entities — from markup, no model), `summarize` (map-reduce over search hits with the agent's model, injected).
 - sql: `describe_schema` (dbt schema.yml, bilingual), `sql_query` (one SELECT, `agent_ro`, read-only, 15 s, ≤ 200 rows), `make_chart` (Plotly figure spec).
 - verify: `get_chunks`, `rerun_sql`, `verdict`.

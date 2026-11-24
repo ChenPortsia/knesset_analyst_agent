@@ -170,8 +170,10 @@ SHARE_BY = {  # by → (label over `b`, extra joins); `b` = the speaker rows in 
         "coalesce(pe.full_name, b.speaker_raw)",
         "left join marts.dim_person pe using (person_id)",
     ),
-    "faction": (
-        "coalesce(fac.faction_name, '(ללא סיעה)')",
+    "faction": (  # people outside the marts (officials, guests) apart from MKs without a faction
+        """case when fac.faction_name is not null then fac.faction_name
+                when b.person_id is null then '(לא חברי כנסת / לא זוהו)'
+                else '(ללא סיעה)' end""",
         "left join fac using (person_id, doc_date)",
     ),
     "committee": (

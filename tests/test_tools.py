@@ -110,7 +110,11 @@ def test_share_of_words(data):
         ("הרכבת", 25.0),
     ]
     by_faction = share_of_words("faction")["shares"]
-    assert {r["value"]: r["words"] for r in by_faction} == {"(ללא סיעה)": 30, "יש עתיד": 10}
+    assert {r["value"]: r["words"] for r in by_faction} == {
+        "(לא חברי כנסת / לא זוהו)": 10,
+        "(ללא סיעה)": 20,
+        "יש עתיד": 10,
+    }
     assert share_of_words("speaker", {"items": [[2, 900]]})["total_words"] == 30
 
 

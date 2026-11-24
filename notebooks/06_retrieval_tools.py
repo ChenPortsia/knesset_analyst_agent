@@ -89,6 +89,20 @@ committee_id = committee["candidates"][0]["id"]
 person = check(resolve_entity("בנימין נתניהו", types=["person"]), "candidates")
 pd.DataFrame(committee["candidates"] + person["candidates"])
 
+# %% [markdown]
+# Filtered search latency: one committee (exact distances over its chunks, not the index).
+
+# %%
+cf = Filters(knessets=KNESSETS, committee_ids=[committee_id])
+search(QUERIES[0], cf, encode=encode)  # warm-up
+ms = []
+for query in QUERIES:
+    started = time.perf_counter()
+    search(query, cf, k=10, encode=encode)
+    ms.append((time.perf_counter() - started) * 1000)
+print(f"committee {committee_id}: median {statistics.median(ms):.0f} ms, max {max(ms):.0f} ms")
+assert statistics.median(ms) < TARGET_MS
+
 # %%
 found = check(search_text("תקציב המדינה", F | {"committee_ids": [committee_id]}, k=3), "results")
 hit = found["results"][0]

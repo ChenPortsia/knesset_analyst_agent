@@ -42,6 +42,14 @@ class Filters:
     doc_ids: list[str] | None = None
     include_headers: bool = False  # attendance lists and tables of contents
 
+    @property
+    def selective(self) -> bool:
+        """Filters that leave a small share of the chunks (not Knesset, type or dates)."""
+        return any(
+            (self.committee_ids, self.person_ids, self.faction_ids, self.mentions, self.entity,
+             self.items, self.doc_ids)
+        )  # fmt: skip
+
     def where(self) -> tuple[str, dict[str, Any]]:
         """SQL conditions on chunks `c` and documents `d`, and their parameters."""
         sql, p = ["true"], {}
@@ -137,14 +145,29 @@ def default_encoder() -> Encode | None:
     return _encoder
 
 
-def vector_ids(conn: Any, vec: Sequence[float], where: str, p: dict) -> list[int]:
+def vector_ids(conn: Any, vec: Sequence[float], where: str, p: dict, exact: bool) -> list[int]:
+    """Nearest chunks by cosine distance. A selective filter (a committee, a speaker, …) leaves
+    few chunks, and the HNSW index would keep discarding neighbors from elsewhere (2 s for one
+    committee); comparing with the filtered chunks directly is faster there (≈ 0.25 s per 60k)."""
+    v = "[" + ",".join(f"{x:.5f}" for x in vec) + "]"
+    if exact:
+        rows = conn.execute(
+            f"""with cand as materialized (
+                    select c.chunk_id, c.embedding from text.chunks c
+                    join text.documents d using (doc_id)
+                    where c.embedding is not null and {where})
+                select chunk_id from cand order by embedding <=> %(v)s::halfvec
+                limit {CANDIDATES}""",
+            p | {"v": v},
+        ).fetchall()
+        return [r[0] for r in rows]
     conn.execute("set local hnsw.ef_search = 100")
     conn.execute("select set_config('hnsw.iterative_scan', 'relaxed_order', true)")
     rows = conn.execute(
         f"""select c.chunk_id from text.chunks c join text.documents d using (doc_id)
             where c.embedding is not null and {where}
             order by c.embedding <=> %(v)s::halfvec limit {CANDIDATES}""",
-        p | {"v": "[" + ",".join(f"{x:.5f}" for x in vec) + "]"},
+        p | {"v": v},
     ).fetchall()
     return [r[0] for r in rows]
 
@@ -240,7 +263,7 @@ def search(
     encoder = default_encoder() if encode is True else encode or None
     vec = encoder([query])[0] if encoder else None
     with connect("agent_ro") as conn, conn.transaction():
-        by_vector = vector_ids(conn, vec, where, p) if vec is not None else []
+        by_vector = vector_ids(conn, vec, where, p, filters.selective) if vec is not None else []
         by_keyword = keyword_ids(conn, query, where, p)
         top, also = dedupe(conn, fuse(by_vector, by_keyword), k)
         windows = expand(conn, top, neighbors)
