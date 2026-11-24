@@ -14,7 +14,9 @@
 # %% [markdown]
 # # 07 · Agents
 # **Paid** (Claude API). Each specialist alone, the verifier on planted errors, then the full
-# graph on 10 mixed questions. Every step checks the notebook's cap first: it never starts a
+# LangGraph graph on 10 mixed questions (a question it would ask back about counts as answered
+# without sources; follow-ups and resume are covered by the tests and `knesset ask --thread`).
+# Every step checks the notebook's cap first: it never starts a
 # step whose worst case (`AGENT_MAX_COST_USD` per question) would pass `MAX_NOTEBOOK_USD`.
 # Run natively: `uv run --extra embed jupytext --to ipynb --execute notebooks/07_agents.py`.
 
@@ -153,14 +155,15 @@ for question in QUESTIONS:
     if not room(s.agent_max_cost_usd):
         break
     *steps, (_, result) = ask(question, user_id="notebook-07", filters={"knessets": KNESSETS})
+    steps = [n for n, _ in steps if n not in ("event", "tool")]  # graph nodes only
     u = result["usage"]
     spent += u["cost_usd"]
     rows.append({
-        "question": question, "nodes": " → ".join(n for n, _ in steps),
+        "question": question, "nodes": " → ".join(steps),
         "verdict": (result["verdict"] or {}).get("status"), "sources": len(result["sources"]),
         "cites": "[1]" in result["answer"], "cost": round(u["cost_usd"], 3), "calls": u["calls"],
         "steps": u["steps"], "seconds": u["seconds"], "trace_id": result["trace_id"],
-        "answer": result["answer"],
+        "answer": result["answer"] or f"(asked back) {result['interrupt']['question']}",
     })  # fmt: skip
     save("question", rows[-1] | {"sources_list": result["sources"]})
     print(f"\n### {question}\n{result['answer']}\n${u['cost_usd']:.3f} · {u['seconds']} s")

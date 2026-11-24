@@ -1,0 +1,5 @@
+{
+  "dependencies": ["."],
+  "graphs": {"knesset": "./src/knesset/agents/graph.py:studio_graph"},
+  "env": ".env"
+}

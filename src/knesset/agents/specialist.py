@@ -1,22 +1,29 @@
-"""The specialists (PLAN.md §7): each one is a tool loop with its own prompt, tools and model,
-behind `run(AgentTask) -> AgentResult`. Findings may cite only evidence the agent's own tool
-calls returned in this task; anything else is dropped as invented."""
+"""The specialists (PLAN.md §7) as LangGraph subgraphs built with `create_agent`: each has its
+own prompt, tools and model, a native structured final answer (findings, or the verifier's
+verdict) and a cap on model calls, behind `run(AgentTask) -> AgentResult`. Findings may cite
+only evidence the agent's own tool calls returned in this task; anything else is dropped."""
 
+import json
 import re
 from pathlib import Path
 from typing import Any, Literal
 
+from langchain.agents import create_agent
+from langchain.agents.middleware import ModelCallLimitMiddleware
+from langchain.agents.structured_output import ProviderStrategy
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from pydantic import BaseModel, Field
 
-from knesset.agents.contracts import AgentResult, AgentTask, Evidence, Finding
-from knesset.agents.llm import Budget, LimitReached, tool_loop
-from knesset.config import settings
-from knesset.tools.lc import AGENT_TOOLS
+from knesset.agents.contracts import AgentResult, AgentTask, Evidence, Finding, Usage
+from knesset.agents.llm import Budget, LimitReached
+from knesset.agents.models import BudgetCallback, ModelFactory, chat_model, model_name, usage_of
+from knesset.tools.lc import tools_for
 from knesset.tracing import tracer
 
 PROMPTS = Path(__file__).with_name("prompts")
 MAX_FINDINGS = 6  # per task, most important first: shorter drafts, fewer claims to check
 EFFORT = {"analyst": "medium", "researcher": "medium", "summarizer": "medium", "verifier": "medium"}
+MAX_CALLS = 8  # model calls per specialist task (middleware)
 
 
 class Answer(BaseModel):
@@ -46,12 +53,34 @@ def prompt(name: str) -> str:
     )
 
 
-def model_for(agent: str) -> str:
-    return getattr(settings(), f"agent_{agent}_model")
+def subgraph(agent: str, model: Any) -> Any:
+    """The specialist as a compiled LangGraph agent: model ↔ tools, then a native structured
+    answer (Claude's JSON output, sent with the tools; forced tool choice is not used)."""
+    return create_agent(
+        model=model,
+        tools=tools_for(agent),
+        system_prompt=prompt(agent),
+        response_format=ProviderStrategy(Verdict if agent == "verifier" else Answer),
+        middleware=[ModelCallLimitMiddleware(run_limit=MAX_CALLS, exit_behavior="end")],
+        name=agent,
+    )
 
 
-def tools(agent: str) -> list:
-    return list(AGENT_TOOLS[agent])
+def artifacts_of(messages: list) -> list[dict]:
+    """Each tool call in the subgraph's messages, with its input and its (JSON) result."""
+    calls = {c["id"]: c for m in messages if isinstance(m, AIMessage) for c in m.tool_calls}
+    out = []
+    for m in messages:
+        if isinstance(m, ToolMessage):
+            call = calls.get(m.tool_call_id, {})
+            failed = m.status == "error"
+            try:
+                result = m.content if failed else json.loads(m.content)
+            except (TypeError, ValueError):
+                result, failed = m.content, True
+            out.append({"tool": call.get("name", m.name), "input": call.get("args", {}),
+                        "error": failed, "output": result})  # fmt: skip
+    return out
 
 
 def seen_refs(artifacts: list[dict]) -> dict[tuple[str, str], str | None]:
@@ -81,7 +110,7 @@ def keep_seen(findings: list[Finding], seen: dict[tuple[str, str], str | None]) 
     return out
 
 
-def run(task: AgentTask, budget: Budget, api: Any = None) -> AgentResult:
+def run(task: AgentTask, budget: Budget, models: ModelFactory = chat_model) -> AgentResult:
     """One specialist task. Errors and limits come back in the result, not as exceptions."""
     agent = task.agent
     with tracer().start_as_current_span(f"agent.{agent}") as span:
@@ -93,19 +122,28 @@ def run(task: AgentTask, budget: Budget, api: Any = None) -> AgentResult:
             text += f"\n\nFilters from the user (always apply): {task.filters}"
         if task.context:
             text += f"\n\nContext:\n{task.context}"
-        output = Verdict if agent == "verifier" else Answer
         try:
             budget.step(f"{agent} {task.task_id}")
-            answer, usage, artifacts = tool_loop(
-                model_for(agent), prompt(agent), text, output, budget,
-                tools(agent), EFFORT[agent], api,
-            )  # fmt: skip
+            graph = subgraph(agent, models(agent, EFFORT[agent]))
+            out = graph.invoke(
+                {"messages": [HumanMessage(text)]},
+                {"callbacks": [BudgetCallback(budget)], "recursion_limit": 4 * MAX_CALLS},
+            )
         except (LimitReached, RuntimeError, ValueError) as e:
             span.set_attribute("error", str(e))
             return AgentResult(task_id=task.task_id, agent=agent, error=str(e))
+        messages = out["messages"]
+        usage = Usage()
+        for m in messages:
+            if isinstance(m, AIMessage):
+                usage.add(usage_of(m, model_name(agent)))
         span.set_attribute("cost_usd", usage.cost_usd)
+        artifacts = artifacts_of(messages)
         result = AgentResult(task_id=task.task_id, agent=agent, usage=usage, artifacts=artifacts)
-        if isinstance(answer, Verdict):
+        answer = out.get("structured_response")
+        if answer is None:
+            result.error = f"no final answer within {MAX_CALLS} model calls"
+        elif isinstance(answer, Verdict):
             result.verdict = answer.model_dump()
         else:
             result.findings = keep_seen(answer.findings, seen_refs(artifacts))[:MAX_FINDINGS]

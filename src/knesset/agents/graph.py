@@ -1,42 +1,53 @@
-"""The orchestrator graph (PLAN.md §7): plan → delegate → draft → verify → finish.
+"""The orchestrator graph (PLAN.md §7) on LangGraph:
 
-- plan: the orchestrator (Opus) writes tasks for the specialists, or asks the user to clarify;
-  it may call resolve_entity so filters use ids.
-- delegate: tasks run through AgentClient, independent ones in parallel, dependent ones after
-  the tasks they need (with those findings as context).
-- draft: an answer from the findings only, citing numbered sources.
-- verify: an answer whose sources are all SQL is checked in code first (every number in it
-  must appear in the cited queries' results); otherwise, or if that fails, the verifier
-  checks the most important claims against the cited chunks and SQL.
-- On fail the orchestrator thinks again, once: if the verifier says information is missing
-  (and budget is left) it re-plans only for that, then drafts and checks again; otherwise, or
-  after that, it revises the draft from the findings it has, dropping or qualifying each
-  flagged claim.
-- Limits (cost, steps, 90 s) end the run early with what is known, said so.
+- State with reducers; the runtime context (`context_schema`) carries the question's budget
+  and the model factory, so tests pass fake models and other providers plug in.
+- start → plan: a `create_agent` subgraph (resolve_entity, native structured Plan). Names it
+  resolves go to the long-term Store and are offered to later plans in any thread.
+- clarify: `interrupt()` pauses the run with a question; `Command(resume=…)` continues it.
+- dispatch → specialist: `Send` fan-out, independent tasks in parallel, dependent ones in a
+  later wave with their dependencies' findings as context.
+- draft / revise: structured output, with a `RetryPolicy` on transient errors.
+- verify: SQL-only answers checked in code; otherwise the verifier subgraph. It routes with
+  `Command(goto=…)`: finish, revise (unsupported claims), or plan once more (missing
+  information, if budget is left).
+- finish: the answer; the checkpointer keeps the thread's conversation for follow-ups.
+- Streaming: graph and subgraph updates (tool calls) and custom events (agent start/finish).
 """
 
-import contextvars
 import json
 import re
 import time
 import uuid
-from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Literal, TypedDict
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from operator import add
+from typing import Annotated, Any, Literal, TypedDict
 
-from langgraph.graph import END, StateGraph
+from langchain.agents import create_agent
+from langchain.agents.middleware import ModelCallLimitMiddleware
+from langchain.agents.structured_output import ProviderStrategy
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langgraph.graph import END, START, StateGraph
+from langgraph.runtime import Runtime
+from langgraph.types import Command, RetryPolicy, Send, interrupt
 from pydantic import BaseModel, Field
 
 from knesset.agents.client import client_for
 from knesset.agents.contracts import AgentResult, AgentTask, Finding
-from knesset.agents.llm import Budget, LimitReached, tool_loop
-from knesset.agents.specialist import model_for, prompt
+from knesset.agents.llm import Budget, LimitReached
+from knesset.agents.models import BudgetCallback, ModelFactory, chat_model
+from knesset.agents.specialist import prompt
 from knesset.config import settings
 from knesset.tools.common import resolve_entity
+from knesset.tools.lc import as_tool
 from knesset.tools.sql import sql_query
 from knesset.tracing import tracer
 
 REDELEGATE_RESERVE_USD = 0.15  # re-plan for missing information only if this much is left
+RETRY = RetryPolicy(max_attempts=2)  # transient API / network errors (not limits or bad output)
+MEMORY_SCHEMA = "ops"  # checkpoints and the long-term store: tables in etl's `ops` schema
 
 
 class Task(BaseModel):
@@ -56,21 +67,50 @@ class Draft(BaseModel):
     caveats: str = Field(description="What is uncertain or missing; empty if nothing")
 
 
+def extend(left: list | None, right: list | None) -> list:
+    """Append results; None resets (a new question in the same thread)."""
+    return [] if right is None else (left or []) + right
+
+
 class State(TypedDict, total=False):
     question: str
     user_id: str
-    thread_id: str
     ui_filters: dict[str, Any]
+    conversation: Annotated[list[dict], add]  # earlier turns in this thread (checkpointed)
     plan: list[dict]
+    round: int
     clarification: str
-    results: list[dict]  # AgentResult per task
+    results: Annotated[list[dict], extend]  # AgentResult per task
     draft: dict
+    sources: list[dict]
     verdict: dict
     redelegated: bool  # the one re-plan for missing information was used
     revised: bool
     limit: str  # why the run stopped early
     answer: str
-    sources: list[dict]
+
+
+class TaskState(TypedDict):
+    """What `Send` hands one specialist."""
+
+    task: dict
+    context: str
+    filters: dict[str, Any]
+
+
+@dataclass
+class Context:
+    """Runtime context of one run: not part of the checkpointed state."""
+
+    budget: Budget = field(default_factory=Budget.from_settings)
+    models: ModelFactory = chat_model
+
+    @property
+    def config(self) -> dict:
+        return {"callbacks": [BudgetCallback(self.budget)]}
+
+
+# ---------------------------------------------------------------- formatting
 
 
 def sources_of(results: list[dict]) -> list[dict]:
@@ -116,8 +156,7 @@ def numbers(text: str) -> set[str]:
 
 def sql_numbers_check(question: str, answer: str, sources: list[dict]) -> bool:
     """For an answer whose sources are all SQL: re-run each query and check that every number
-    in the answer appears in the results (or in the question, or is a small rank). Any other
-    answer, or a number that does not appear, goes to the verifier."""
+    in the answer appears in the results (or in the question, or is a small rank)."""
     if not sources or any(s["type"] != "sql" for s in sources):
         return False
     found: set[str] = set()
@@ -135,222 +174,386 @@ def sql_numbers_check(question: str, answer: str, sources: list[dict]) -> bool:
     return bool(claimed) and claimed <= allowed
 
 
-class Orchestrator:
-    def __init__(self, budget: Budget, api: Any = None):
-        self.budget, self.api = budget, api
-
-    def plan(self, state: State) -> State:
-        self.budget.step("plan")
-        text = f"Question: {state['question']}"
-        if state.get("ui_filters"):
-            text += f"\nFilters set by the user: {json.dumps(state['ui_filters'])}"
-        if state.get("verdict", {}).get("status") == "fail":
-            missing = [i["problem"] for i in state["verdict"]["issues"] if i["kind"] == "missing"]
-            text += (
-                "\n\nThe verifier found information missing from a first answer:\n- "
-                + "\n- ".join(missing)
-                + "\n\nFindings so far:\n"
-                + findings_text(state["results"], sources_of(state["results"]))
-                + "\n\nPlan only the tasks (at most 2) that find the missing information."
-            )
-        plan, _, _ = tool_loop(model_for("orchestrator"), prompt("orchestrator"), text, Plan,
-                               self.budget, [resolve_entity], "medium", self.api)  # fmt: skip
-        update = {"plan": [t.model_dump() for t in plan.tasks], "clarification": plan.clarification}
-        return update | ({"redelegated": True} if state.get("verdict") else {})
-
-    def delegate(self, state: State) -> State:
-        tasks = {t["id"]: t for t in state["plan"]}
-        done: dict[str, dict] = {}
-        earlier = state.get("results", [])
-        while len(done) < len(tasks):
-            ready = [t for t in tasks.values() if t["id"] not in done
-                     and all(d in done or d not in tasks for d in t["depends_on"])]  # fmt: skip
-            if not ready:  # a dependency cycle: run the rest without their context
-                ready = [t for t in tasks.values() if t["id"] not in done]
-
-            def handoff(t: dict) -> dict:
-                deps = [done[d] for d in t["depends_on"] if d in done]
-                context = findings_text(deps, sources_of(deps)) if deps else ""
-                task = AgentTask(task_id=t["id"], agent=t["agent"], instruction=t["instruction"],
-                                 context=context, filters=state.get("ui_filters", {}),
-                                 max_cost_usd=self.budget.left_usd)  # fmt: skip
-                with tracer().start_as_current_span(f"handoff.{t['agent']}") as span:
-                    span.set_attribute("task_id", t["id"])
-                    span.set_attribute("from", "orchestrator")
-                    span.set_attribute("to", t["agent"])
-                    return client_for(t["agent"], self.api).run(task, self.budget).model_dump()
-
-            # each worker runs in a copy of this context, so its spans stay in the question's trace
-            contexts = [contextvars.copy_context() for _ in ready]
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                results = pool.map(
-                    lambda ct: ct[0].run(handoff, ct[1]), zip(contexts, ready, strict=True)
-                )
-                for t, result in zip(ready, results, strict=True):
-                    done[t["id"]] = result
-        return {"results": earlier + list(done.values())}
-
-    def draft(self, state: State) -> State:
-        self.budget.step("draft")
-        sources = sources_of(state["results"])
-        text = (
-            f"Question: {state['question']}\n\nFindings (sources in brackets):\n"
-            f"{findings_text(state['results'], sources)}\n\nSources:\n{sources_text(sources)}"
-        )
-        draft, _, _ = tool_loop(model_for("orchestrator"), prompt("draft"), text, Draft,
-                                self.budget, [], "medium", self.api)  # fmt: skip
-        return {"draft": draft.model_dump(), "sources": sources}
-
-    def verify(self, state: State) -> State:
-        sources = state["sources"]
-        if sql_numbers_check(state["question"], state["draft"]["answer"], sources):
-            return {"verdict": {"status": "pass", "issues": [], "checked": "sql in code"}}
-        task = AgentTask(
-            task_id="verify",
-            agent="verifier",
-            instruction="Check this draft answer against its sources.",
-            context=f"Question: {state['question']}\n\nDraft:\n{state['draft']['answer']}\n\n"
-            f"Findings:\n{findings_text(state['results'], sources)}\n\n"
-            f"Sources:\n{sources_text(sources)}",
-            max_cost_usd=self.budget.left_usd,
-        )
-        with tracer().start_as_current_span("handoff.verifier"):
-            result = client_for("verifier", self.api).run(task, self.budget)
-        if result.verdict is None:  # the check itself failed: say so, do not loop
-            problem = {"claim": "", "problem": result.error or "no verdict", "kind": "unsupported"}
-            update: State = {"verdict": {"status": "fail", "issues": [problem]}}
-            return update | ({"limit": result.error} if "limit" in (result.error or "") else {})
-        return {"verdict": result.verdict}
-
-    def revise(self, state: State) -> State:
-        """Think again without searching: rewrite from the findings, fixing each issue."""
-        self.budget.step("revise")
-        sources = state["sources"]
-        issues = "\n".join(f"- {i['claim']}: {i['problem']}" for i in state["verdict"]["issues"])
-        text = (
-            f"Question: {state['question']}\n\nFindings (sources in brackets):\n"
-            f"{findings_text(state['results'], sources)}\n\nSources:\n{sources_text(sources)}"
-            f"\n\nYour draft:\n{state['draft']['answer']}\n\nThe verifier found these issues:\n"
-            f"{issues}\n\nRewrite the answer: remove or correct each flagged claim, or state it "
-            "as uncertain. Add no new fact. Say in caveats what you removed."
-        )
-        draft, _, _ = tool_loop(model_for("orchestrator"), prompt("draft"), text, Draft,
-                                self.budget, [], "medium", self.api)  # fmt: skip
-        return {"draft": draft.model_dump(), "revised": True}
-
-    def finish(self, state: State) -> State:
-        if state.get("clarification") and not state.get("plan"):
-            return {"answer": state["clarification"], "sources": []}
-        sources = state.get("sources") or sources_of(state.get("results", []))
-        if state.get("draft"):
-            answer = state["draft"]["answer"]
-            notes = [state["draft"]["caveats"]] if state["draft"]["caveats"] else []
-        else:  # a limit stopped the run before the draft: list the findings
-            answer = "Partial findings:\n" + findings_text(state.get("results", []), sources)
-            notes = []
-        if state.get("verdict", {}).get("status") == "fail" and not state.get("revised"):
-            issues = "; ".join(i["problem"] for i in state["verdict"]["issues"])
-            notes.append(f"Not fully verified: {issues}")
-        if state.get("limit"):
-            notes.append(f"Stopped early: {state['limit']}.")
-        if notes:
-            answer += "\n\n" + "\n".join(f"⚠ {n}" for n in notes)
-        return {"answer": answer, "sources": sources}
+# ---------------------------------------------------------------- memory (Store)
 
 
-def guarded(step: Any, always: bool = False) -> Any:
-    """A node that turns a hit limit, or a failed model call (refusal, unparsable answer), into
-    state, so the graph goes on to finish with what it has."""
-
-    def node(state: State) -> State:
-        if state.get("limit") and not always:  # finish always runs
-            return {}
-        with tracer().start_as_current_span(f"orchestrator.{step.__name__}") as span:
+def remember(store: Any, user_id: str, messages: list) -> None:
+    """Keep each name the planner resolved, so later questions start from the ids."""
+    if store is None:
+        return
+    calls = {c["id"]: c for m in messages if isinstance(m, AIMessage) for c in m.tool_calls}
+    for m in messages:
+        if isinstance(m, ToolMessage) and m.status != "error":
+            call = calls.get(m.tool_call_id, {})
+            if call.get("name") != "resolve_entity":
+                continue
             try:
-                return step(state)
+                best = json.loads(m.content)["candidates"][0]
+            except (ValueError, KeyError, IndexError, TypeError):
+                continue
+            store.put(("entities", user_id), call["args"]["name"], best)
+
+
+def known_entities(store: Any, user_id: str) -> str:
+    if store is None:
+        return ""
+    items = store.search(("entities", user_id), limit=40)
+    return "\n".join(f"- {i.key} → {i.value['type']} {i.value['id']} ({i.value['name']}, "
+                     f"Knesset {i.value.get('knesset')})" for i in items)  # fmt: skip
+
+
+# ---------------------------------------------------------------- nodes
+
+
+def traced(name: str, step: Callable, guard: bool = True) -> Callable:
+    """A node with its span; guarded nodes turn a hit limit or a failed model call (refusal,
+    unparsable answer) into state, so the graph goes on to finish with what it has."""
+
+    def node(state: State, runtime: Runtime[Context]) -> Any:
+        if guard and state.get("limit"):
+            return {}
+        with tracer().start_as_current_span(f"orchestrator.{name}") as span:
+            if not guard:
+                return step(state, runtime)
+            try:
+                return step(state, runtime)
             except (LimitReached, RuntimeError, ValueError) as e:
                 span.set_attribute("limit", str(e)[:300])
                 return {"limit": str(e)[:300]}
 
-    node.__name__ = step.__name__
+    node.__name__ = name
     return node
 
 
-def build(budget: Budget, api: Any = None) -> Any:
-    o = Orchestrator(budget, api)
-    g = StateGraph(State)
-    for name in ("plan", "delegate", "draft", "verify", "revise", "finish"):
-        g.add_node(name, guarded(getattr(o, name), always=name == "finish"))
-    g.set_entry_point("plan")
-    g.add_conditional_edges(
-        "plan", lambda s: "finish" if s.get("limit") or not s.get("plan") else "delegate"
+def start(state: State, runtime: Runtime[Context]) -> State:
+    """A new question: clear the previous question's working state (the conversation stays)."""
+    return {"plan": [], "round": 0, "clarification": "", "results": None, "draft": {},
+            "sources": [], "verdict": {}, "redelegated": False, "revised": False, "limit": "",
+            "answer": ""}  # fmt: skip
+
+
+def plan(state: State, runtime: Runtime[Context]) -> State:
+    ctx = runtime.context
+    ctx.budget.step("plan")
+    user = state.get("user_id", "anonymous")
+    text = f"Question: {state['question']}"
+    if state.get("ui_filters"):
+        text += f"\nFilters set by the user: {json.dumps(state['ui_filters'])}"
+    if known := known_entities(runtime.store, user):
+        text += f"\n\nIds resolved in earlier questions (reuse them):\n{known}"
+    if turns := state.get("conversation", [])[-3:]:
+        text += "\n\nEarlier in this conversation:\n" + "\n".join(
+            f"Q: {t['question']}\nA: {t['answer'][:600]}" for t in turns
+        )
+    if state.get("verdict", {}).get("status") == "fail":
+        missing = [i["problem"] for i in state["verdict"]["issues"] if i["kind"] == "missing"]
+        text += (
+            "\n\nThe verifier found information missing from a first answer:\n- "
+            + "\n- ".join(missing)
+            + "\n\nFindings so far:\n"
+            + findings_text(state["results"], sources_of(state["results"]))
+            + "\n\nPlan only the tasks (at most 2) that find the missing information."
+        )
+    planner = create_agent(
+        model=ctx.models("orchestrator", "medium"),
+        tools=[as_tool(resolve_entity)],
+        system_prompt=prompt("orchestrator"),
+        response_format=ProviderStrategy(Plan),
+        middleware=[ModelCallLimitMiddleware(run_limit=6, exit_behavior="end")],
+        name="planner",
     )
-    g.add_conditional_edges("delegate", lambda s: "finish" if s.get("limit") else "draft")
-    g.add_conditional_edges("draft", lambda s: "finish" if s.get("limit") else "verify")
+    out = planner.invoke({"messages": [HumanMessage(text)]}, ctx.config)
+    result: Plan | None = out.get("structured_response")
+    if result is None:
+        raise RuntimeError("the planner gave no plan")
+    remember(runtime.store, user, out["messages"])
+    rnd = state.get("round", 0) + 1
+    tasks = [t.model_dump() for t in result.tasks]
+    if rnd > 1:  # a re-plan: keep task ids unique across rounds
+        for t in tasks:
+            t["id"], t["depends_on"] = f"r{rnd}.{t['id']}", [f"r{rnd}.{d}" for d in t["depends_on"]]
+    update: State = {"plan": tasks, "clarification": result.clarification, "round": rnd}
+    return update | ({"redelegated": True} if state.get("verdict") else {})
 
-    def after_verify(s: State) -> str:
-        verdict = s.get("verdict", {})
-        if verdict.get("status") != "fail" or s.get("limit"):
-            return "finish"
-        missing = any(i["kind"] == "missing" for i in verdict["issues"])
-        if missing and not s.get("redelegated") and budget.left_usd >= REDELEGATE_RESERVE_USD:
-            return "plan"
-        return "revise"
 
-    g.add_conditional_edges("verify", after_verify)
+def after_plan(state: State) -> str:
+    if state.get("limit"):
+        return "finish"
+    if state.get("clarification") and not state.get("plan"):
+        return "clarify"
+    return "dispatch"
+
+
+def clarify(state: State, runtime: Runtime[Context]) -> State:
+    """Pause and ask the user; the run continues with their reply (Command(resume=…))."""
+    reply = interrupt({"question": state["clarification"]})
+    return {"question": f"{state['question']}\n\nThe user clarified: {reply}", "clarification": ""}
+
+
+def fan_out(state: State) -> list[Send] | str:
+    """Send each ready task to a specialist (in parallel); when none are left, draft."""
+    if state.get("limit"):
+        return "finish"
+    done = {r["task_id"]: r for r in state.get("results") or []}
+    pending = [t for t in state.get("plan", []) if t["id"] not in done]
+    if not pending:
+        return "draft"
+    ids = {t["id"] for t in state["plan"]}
+    ready = [t for t in pending if all(d in done or d not in ids for d in t["depends_on"])]
+    sends = []
+    for t in ready or pending:  # a dependency cycle: run the rest without their context
+        deps = [done[d] for d in t["depends_on"] if d in done]
+        context = findings_text(deps, sources_of(deps)) if deps else ""
+        sends.append(Send("specialist", {"task": t, "context": context,
+                                         "filters": state.get("ui_filters", {})}))  # fmt: skip
+    return sends
+
+
+def specialist(payload: TaskState, runtime: Runtime[Context]) -> State:
+    """One delegated task, through AgentClient (in process now, A2A in Phase 8)."""
+    ctx, t = runtime.context, payload["task"]
+    runtime.stream_writer({"agent": t["agent"], "task": t["id"], "status": "started"})
+    task = AgentTask(task_id=t["id"], agent=t["agent"], instruction=t["instruction"],
+                     context=payload["context"], filters=payload["filters"],
+                     max_cost_usd=ctx.budget.left_usd)  # fmt: skip
+    with tracer().start_as_current_span(f"handoff.{t['agent']}") as span:
+        span.set_attribute("task_id", t["id"])
+        span.set_attribute("from", "orchestrator")
+        span.set_attribute("to", t["agent"])
+        result: AgentResult = client_for(t["agent"]).run(task, ctx.budget, ctx.models)
+    runtime.stream_writer({"agent": t["agent"], "task": t["id"], "status": "done",
+                           "findings": len(result.findings), "error": result.error,
+                           "cost_usd": round(result.usage.cost_usd, 4)})  # fmt: skip
+    return {"results": [result.model_dump()]}
+
+
+def structured(ctx: Context, schema: type[BaseModel], system: str, text: str) -> Any:
+    model = ctx.models("orchestrator", "medium").with_structured_output(
+        schema, method="json_schema"
+    )
+    return model.invoke([SystemMessage(system), HumanMessage(text)], ctx.config)
+
+
+def draft(state: State, runtime: Runtime[Context]) -> State:
+    ctx = runtime.context
+    ctx.budget.step("draft")
+    sources = sources_of(state["results"])
+    text = (
+        f"Question: {state['question']}\n\nFindings (sources in brackets):\n"
+        f"{findings_text(state['results'], sources)}\n\nSources:\n{sources_text(sources)}"
+    )
+    result: Draft = structured(ctx, Draft, prompt("draft"), text)
+    return {"draft": result.model_dump(), "sources": sources}
+
+
+def after_draft(state: State) -> str:
+    return "finish" if state.get("limit") else "verify"
+
+
+def verify(state: State, runtime: Runtime[Context]) -> Command[Literal["finish", "revise", "plan"]]:
+    ctx, sources = runtime.context, state["sources"]
+    if sql_numbers_check(state["question"], state["draft"]["answer"], sources):
+        verdict = {"status": "pass", "issues": [], "checked": "sql in code"}
+        return Command(goto="finish", update={"verdict": verdict})
+    task = AgentTask(
+        task_id="verify",
+        agent="verifier",
+        instruction="Check this draft answer against its sources.",
+        context=f"Question: {state['question']}\n\nDraft:\n{state['draft']['answer']}\n\n"
+        f"Findings:\n{findings_text(state['results'], sources)}\n\n"
+        f"Sources:\n{sources_text(sources)}",
+        max_cost_usd=ctx.budget.left_usd,
+    )
+    with tracer().start_as_current_span("handoff.verifier"):
+        result = client_for("verifier").run(task, ctx.budget, ctx.models)
+    if result.verdict is None:  # the check itself failed: say so, do not loop
+        problem = {"claim": "", "problem": result.error or "no verdict", "kind": "unsupported"}
+        verdict = {"status": "fail", "issues": [problem]}
+        if "limit" in (result.error or ""):
+            return Command(goto="finish", update={"verdict": verdict, "limit": result.error})
+        return Command(goto="revise", update={"verdict": verdict})
+    verdict = result.verdict
+    if verdict["status"] != "fail":
+        return Command(goto="finish", update={"verdict": verdict})
+    missing = any(i["kind"] == "missing" for i in verdict["issues"])
+    if missing and not state.get("redelegated") and ctx.budget.left_usd >= REDELEGATE_RESERVE_USD:
+        return Command(goto="plan", update={"verdict": verdict})
+    return Command(goto="revise", update={"verdict": verdict})
+
+
+def revise(state: State, runtime: Runtime[Context]) -> State:
+    """Think again without searching: rewrite from the findings, fixing each issue."""
+    ctx = runtime.context
+    ctx.budget.step("revise")
+    sources = state["sources"]
+    issues = "\n".join(f"- {i['claim']}: {i['problem']}" for i in state["verdict"]["issues"])
+    text = (
+        f"Question: {state['question']}\n\nFindings (sources in brackets):\n"
+        f"{findings_text(state['results'], sources)}\n\nSources:\n{sources_text(sources)}"
+        f"\n\nYour draft:\n{state['draft']['answer']}\n\nThe verifier found these issues:\n"
+        f"{issues}\n\nRewrite the answer: remove or correct each flagged claim, or state it "
+        "as uncertain. Add no new fact. Say in caveats what you removed."
+    )
+    result: Draft = structured(ctx, Draft, prompt("draft"), text)
+    return {"draft": result.model_dump(), "revised": True}
+
+
+def finish(state: State, runtime: Runtime[Context]) -> State:
+    sources = state.get("sources") or sources_of(state.get("results") or [])
+    if state.get("draft"):
+        answer = state["draft"]["answer"]
+        notes = [state["draft"]["caveats"]] if state["draft"]["caveats"] else []
+    else:  # a limit stopped the run before the draft: list the findings
+        answer = "Partial findings:\n" + findings_text(state.get("results") or [], sources)
+        notes = []
+    if state.get("verdict", {}).get("status") == "fail" and not state.get("revised"):
+        issues = "; ".join(i["problem"] for i in state["verdict"]["issues"])
+        notes.append(f"Not fully verified: {issues}")
+    if state.get("limit"):
+        notes.append(f"Stopped early: {state['limit']}.")
+    if notes:
+        answer += "\n\n" + "\n".join(f"⚠ {n}" for n in notes)
+    turn = {"question": state["question"], "answer": answer}
+    return {"answer": answer, "sources": sources, "conversation": [turn]}
+
+
+# ---------------------------------------------------------------- graph
+
+
+def build(checkpointer: Any = None, store: Any = None) -> Any:
+    g = StateGraph(State, context_schema=Context)
+    g.add_node("start", traced("start", start, guard=False))
+    g.add_node("plan", traced("plan", plan), retry_policy=RETRY)
+    g.add_node("clarify", traced("clarify", clarify, guard=False))
+    g.add_node("dispatch", lambda state: {})
+    g.add_node("specialist", specialist)
+    g.add_node("draft", traced("draft", draft), retry_policy=RETRY)
+    g.add_node(
+        "verify", traced("verify", verify, guard=False), destinations=("finish", "revise", "plan")
+    )
+    g.add_node("revise", traced("revise", revise), retry_policy=RETRY)
+    g.add_node("finish", traced("finish", finish, guard=False))
+    g.add_edge(START, "start")
+    g.add_edge("start", "plan")
+    g.add_conditional_edges("plan", after_plan, ["finish", "clarify", "dispatch"])
+    g.add_edge("clarify", "plan")
+    g.add_conditional_edges("dispatch", fan_out, ["specialist", "draft", "finish"])
+    g.add_edge("specialist", "dispatch")
+    g.add_conditional_edges("draft", after_draft, ["finish", "verify"])
     g.add_edge("revise", "finish")
     g.add_edge("finish", END)
-    return g.compile()
+    return g.compile(checkpointer=checkpointer, store=store)
+
+
+studio_graph = build()  # LangGraph Studio (`langgraph dev`) supplies its own persistence
+
+
+def memory_dsn() -> str:
+    return f"{settings().dsn('etl')}?options=-csearch_path%3D{MEMORY_SCHEMA}"
+
+
+@contextmanager
+def persistence(postgres: bool = True) -> Iterator[tuple[Any, Any]]:
+    """Checkpointer and Store: in Postgres (tables in schema `ops`), or in memory."""
+    if not postgres:
+        from langgraph.checkpoint.memory import InMemorySaver
+        from langgraph.store.memory import InMemoryStore
+
+        yield InMemorySaver(), InMemoryStore()
+        return
+    from langgraph.checkpoint.postgres import PostgresSaver
+    from langgraph.store.postgres import PostgresStore
+
+    with (
+        PostgresSaver.from_conn_string(memory_dsn()) as saver,
+        PostgresStore.from_conn_string(memory_dsn()) as store,
+    ):
+        saver.setup()
+        store.setup()
+        yield saver, store
 
 
 def ask(
-    question: str,
+    question: str = "",
     user_id: str = "cli",
     thread_id: str | None = None,
     filters: dict[str, Any] | None = None,
-    api: Any = None,
+    models: ModelFactory | None = None,
+    graph: Any = None,
+    resume: str | None = None,
 ) -> Iterator[tuple[str, dict]]:
-    """Run one question; yields (node, update) as the graph moves, then ("done", result)."""
-    s = settings()
-    budget = Budget(s.agent_max_cost_usd, s.agent_max_steps, s.agent_timeout_s)
-    state: State = {
-        "question": question,
-        "user_id": user_id,
-        "thread_id": thread_id or uuid.uuid4().hex,
-        "ui_filters": filters or {},
-    }
+    """Run one question (or resume a paused one) and stream it: ("<node>", update),
+    ("event", custom progress), ("tool", a subgraph's tool call), ("interrupt", question), then
+    ("done", result). Pass a `graph` built with a checkpointer to keep the conversation."""
+    graph = graph or build(*_memory())
+    thread_id = thread_id or uuid.uuid4().hex
+    ctx = Context(budget=Budget.from_settings(), models=models or chat_model)
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 80}
+    inp: Any = (
+        Command(resume=resume)
+        if resume is not None
+        else {"question": question, "user_id": user_id, "ui_filters": filters or {}}
+    )
     started = time.monotonic()
+    paused = None
     with tracer().start_as_current_span("question") as span:
         span.set_attribute("user_id", user_id)
-        span.set_attribute("thread_id", state["thread_id"])
+        span.set_attribute("thread_id", thread_id)
         span.set_attribute("question", question[:500])
-        # trace-level fields Langfuse reads (Phoenix shows them as attributes)
         span.set_attribute("langfuse.user.id", user_id)
-        span.set_attribute("langfuse.session.id", state["thread_id"])
-        span.set_attribute("input.value", question)
-        final: State = dict(state)
+        span.set_attribute("langfuse.session.id", thread_id)
+        span.set_attribute("input.value", question or f"(resume) {resume}")
         path = []
-        for update in build(budget, api).stream(state, stream_mode="updates"):
-            for node, change in update.items():
-                final.update(change or {})
-                path.append(node)
-                yield node, change or {}
+        for ns, mode, data in graph.stream(inp, config, context=ctx, subgraphs=True,
+                                           stream_mode=["updates", "custom"]):  # fmt: skip
+            if mode == "custom":
+                yield "event", data
+            elif ns:  # inside a subgraph: report its tool calls
+                for change in data.values():
+                    for m in (change or {}).get("messages", []):
+                        for call in getattr(m, "tool_calls", None) or []:
+                            yield "tool", {"name": call["name"], "args": call["args"]}
+            else:
+                for node, change in data.items():
+                    if node == "__interrupt__":
+                        paused = change[0].value
+                        yield "interrupt", paused | {"thread_id": thread_id}
+                        continue
+                    path.append(node)
+                    yield node, change or {}
+        final = graph.get_state(config).values
         span.set_attribute("path", " → ".join(path))
         span.set_attribute("answer", final.get("answer", "")[:2000])
         span.set_attribute("output.value", final.get("answer", ""))
         span.set_attribute("verdict", (final.get("verdict") or {}).get("status", ""))
-        span.set_attribute("cost_usd", budget.usage.cost_usd)
-        span.set_attribute("steps", budget.steps)
+        span.set_attribute("cost_usd", ctx.budget.usage.cost_usd)
+        span.set_attribute("steps", ctx.budget.steps)
         trace_id = format(span.get_span_context().trace_id, "032x")
     yield "done", {
-        "answer": final.get("answer", ""),
+        "answer": "" if paused else final.get("answer", ""),
+        "interrupt": paused,
+        "thread_id": thread_id,
         "sources": final.get("sources", []),
         "verdict": final.get("verdict"),
         "results": final.get("results", []),
-        "usage": budget.usage.model_dump() | {"steps": budget.steps,
-                                              "seconds": round(time.monotonic() - started, 1)},
+        "usage": ctx.budget.usage.model_dump() | {"steps": ctx.budget.steps,
+                                                  "seconds": round(time.monotonic() - started, 1)},
         "trace_id": trace_id,
     }  # fmt: skip
 
 
-__all__ = ["AgentResult", "Finding", "ask", "build"]
+_default_memory: tuple[Any, Any] | None = None
+
+
+def _memory() -> tuple[Any, Any]:
+    """In-memory checkpointer and store for calls that pass no graph (one process)."""
+    global _default_memory
+    if _default_memory is None:
+        from langgraph.checkpoint.memory import InMemorySaver
+        from langgraph.store.memory import InMemoryStore
+
+        _default_memory = (InMemorySaver(), InMemoryStore())
+    return _default_memory
+
+
+__all__ = ["AgentResult", "Context", "Finding", "ask", "build", "persistence"]

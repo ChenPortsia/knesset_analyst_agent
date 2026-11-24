@@ -9,7 +9,7 @@ hands tasks to **specialist agents**, writes a cited answer from their findings,
 ```mermaid
 flowchart LR
     Q([Question]) --> P[Plan<br/><i>orchestrator · Sonnet</i>]
-    P -->|unclear| C([Ask the user])
+    P -->|unclear: interrupt| C([Ask the user]) -->|resume| P
     P --> D{{Delegate<br/>parallel where independent}}
     D --> A[Analyst<br/><i>SQL on marts · Sonnet</i>]
     D --> R[Researcher<br/><i>search texts · Sonnet</i>]
@@ -30,8 +30,8 @@ what it has and that it stopped.
 
 ```mermaid
 flowchart TB
-    subgraph Agents["agents/ (LangGraph orchestrator + specialist tool loops)"]
-      G[graph.py] --> SP[specialist.py] --> L[llm.py · Anthropic SDK]
+    subgraph Agents["agents/ (LangGraph: orchestrator graph + specialist subgraphs)"]
+      G[graph.py · StateGraph] --> SP[specialist.py · create_agent] --> L[models.py · ChatAnthropic]
     end
     subgraph Tools["tools/ (plain typed functions, JSON + evidence)"]
       T1[search_text · get_document · get_chunks]
@@ -55,8 +55,9 @@ flowchart TB
 
 | Part | Technology |
 |---|---|
-| Orchestrator graph | **LangGraph** `StateGraph`: plan → delegate → draft → verify → revise / finish |
-| Specialists | Our own tool loop (`agents/llm.py`) on the **Anthropic SDK**: tools and a strict JSON output schema in one request, prompt caching in loops, server-side refusal fallback (Opus/Sonnet) |
+| Orchestrator graph | **LangGraph** `StateGraph`: start → plan → dispatch ⇉ specialists → draft → verify → revise / finish |
+| Specialists | **LangChain `create_agent`** subgraphs: their tools, a strict output schema (`ProviderStrategy`), a model-call limit middleware |
+| Models | **`ChatAnthropic`** (`agents/models.py`) with effort and server-side refusal fallback (Opus/Sonnet); any LangChain chat model plugs in through the factory in the runtime context |
 | Models (`.env`) | Orchestrator: Claude Sonnet 5.5 · Analyst, researcher: Sonnet 5.5 · Summarizer: Opus 5.5 · Verifier: Haiku 5.5 |
 | Contract | `AgentTask` → `AgentResult` (pydantic, JSON) through `AgentClient` — in process now, A2A in Phase 8 |
 | Tools | Plain Python functions (`tools/`), each returning JSON with an `evidence` list; `langchain-core` builds their schemas |
@@ -66,7 +67,22 @@ flowchart TB
 | Local models (Mac GPU) | bge-m3 (embeddings), bge-reranker-v2-m3 (reranking), DictaBERT-NER (entities) |
 | Observability | OpenTelemetry → **Phoenix** (local) and **Langfuse Cloud**; OpenInference traces every Claude call; structlog JSON logs |
 | Services (`docker-compose.yml`) | db, phoenix, app, ui, scheduler |
-| CLI | `knesset ask` (streams steps), `knesset traces`, `knesset search` |
+| CLI | `knesset ask` (streams steps, asks back, `--thread` for follow-ups), `knesset traces`, `knesset search` |
+| Studio | `langgraph.json` → `uv run --with "langgraph-cli[inmem]" langgraph dev` opens the graph in LangGraph Studio |
+
+## LangGraph features used
+
+| Feature | Where |
+|---|---|
+| `Send` fan-out | `dispatch` sends every ready task to `specialist` in parallel; dependent tasks wait for the next round |
+| Subgraphs | each specialist is a `create_agent` graph; its tool calls stream to the CLI (`subgraphs=True`) |
+| `interrupt()` / `Command(resume=…)` | `clarify` pauses an unclear question; the CLI prompts and resumes the same thread |
+| `Command(goto=…)` | `verify` routes to finish, revise or a re-plan |
+| Checkpointer | `PostgresSaver` (schema `ops`) keeps each thread: follow-up questions see the earlier turns |
+| Store | `PostgresStore` remembers entities resolved for a user, across threads |
+| Runtime context | budget and model factory per run (`Context`), not in the state |
+| `RetryPolicy` | plan, draft and revise retry transient API errors |
+| Streaming | `updates` per node + `custom` events (agent started/done, cost) |
 
 ## Where things live
 
@@ -74,7 +90,8 @@ flowchart TB
 |---|---|
 | **System prompts** | `src/knesset/agents/prompts/*.md` — `common.md` (shared rules) + one per agent: `orchestrator.md`, `draft.md`, `analyst.md` (13 question → SQL examples), `researcher.md`, `summarizer.md`, `verifier.md`. Versioned with the code. |
 | Graph and routing | `src/knesset/agents/graph.py` |
-| Tool loop, budget, costs | `src/knesset/agents/llm.py` |
+| Models, cost callback | `src/knesset/agents/models.py` |
+| Budget and limits | `src/knesset/agents/llm.py` |
 | Specialists and evidence checks | `src/knesset/agents/specialist.py` |
 | Tools per agent | `src/knesset/tools/lc.py` (`AGENT_TOOLS`) |
 | Models and limits | `.env` (`AGENT_*_MODEL`, `AGENT_MAX_COST_USD`, `AGENT_MAX_STEPS`, `AGENT_TIMEOUT_S`) |

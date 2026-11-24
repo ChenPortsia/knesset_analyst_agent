@@ -42,13 +42,5 @@ def as_tool(fn: Callable[..., dict]) -> StructuredTool:
     )
 
 
-def tool_schema(fn: Callable[..., dict]) -> dict:
-    """A tool definition for the Claude API (name, description, JSON schema of the arguments)."""
-    schema = StructuredTool.from_function(fn).args_schema.model_json_schema()
-    schema.pop("title", None)
-    schema.pop("description", None)  # the docstring is the tool's description already
-    return {"name": fn.__name__, "description": (fn.__doc__ or "").strip(), "input_schema": schema}
-
-
 def tools_for(agent: str) -> list[StructuredTool]:
     return [as_tool(fn) for fn in AGENT_TOOLS[agent]]

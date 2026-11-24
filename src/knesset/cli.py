@@ -270,55 +270,74 @@ def search(
 def ask(
     question: str,
     knessets: str = typer.Option("", help="Filter, e.g. 25,26 (default: no filter)"),
+    thread: str = typer.Option("", help="Continue a conversation (the id printed at the end)"),
 ) -> None:
     """Ask the agents a question (paid: Claude API; capped by AGENT_MAX_COST_USD per question).
-    Streams each agent step, then the answer with its sources, cost and trace link."""
+    Streams each step; asks you back if the question is unclear; prints the answer, sources,
+    cost, trace link and the conversation id for follow-up questions."""
     import structlog
 
     from knesset import log as logs
     from knesset import tracing
     from knesset.agents.graph import ask as run_ask
+    from knesset.agents.graph import build, persistence
 
     logs.configure(quiet=True)  # tool calls go to logs/ask/; the steps are printed below
     structlog.contextvars.bind_contextvars(step="ask")
-
     if not settings().anthropic_api_key:
         typer.echo("ERR  ANTHROPIC_API_KEY is not set in .env", err=True)
         raise typer.Exit(2)
     tracing.setup()
     tracing.instrument_llm()
     filters = {"knessets": parse_knessets(knessets)} if knessets else {}
-    for node, update in run_ask(question, filters=filters):
-        if node == "plan":
-            for t in update.get("plan", []):
-                deps = f" (after {', '.join(t['depends_on'])})" if t["depends_on"] else ""
-                typer.echo(f"plan   {t['id']} → {t['agent']}{deps}: {t['instruction']}")
-            if update.get("clarification") and not update.get("plan"):
-                typer.echo("plan   asks the user to clarify")
-        elif node == "delegate":
-            for r in update.get("results", []):
-                status = r["error"] or f"{len(r['findings'])} findings"
-                typer.echo(f"agent  {r['task_id']} {r['agent']}: {status} "
-                           f"(${r['usage']['cost_usd']:.3f})")  # fmt: skip
-        elif node == "verify":
-            v = update.get("verdict", {})
-            checked = f" ({v['checked']})" if v.get("checked") else ""
-            issues = "".join(
-                f"\n       - [{i['kind']}] {i['problem']}" for i in v.get("issues", [])
-            )
-            typer.echo(f"verify {v.get('status')}{checked}{issues}")
-        elif node == "revise":
-            typer.echo("revise draft rewritten from the findings, flagged claims fixed")
-        elif node == "done":
-            typer.echo(f"\n{update['answer']}\n")
-            for s in update["sources"]:
-                typer.echo(f"[{s['n']}] {s['type']} {s['ref'][:120]} {s.get('url') or ''}")
-            u = update["usage"]
-            typer.echo(f"\n${u['cost_usd']:.3f} · {u['calls']} calls · {u['steps']} steps · "
-                       f"{u['seconds']} s · {tracing.trace_link(update['trace_id'])}")  # fmt: skip
-        if update.get("limit"):
-            typer.echo(f"limit  {update['limit']}")
+    with persistence() as (saver, store):
+        graph = build(saver, store)
+        thread_id, resume, done = thread or None, None, {}
+        while True:
+            for node, update in run_ask(question, thread_id=thread_id, filters=filters,
+                                        graph=graph, resume=resume):  # fmt: skip
+                show(node, update)
+                done = update if node == "done" else done
+            if not done.get("interrupt"):
+                break
+            thread_id = done["thread_id"]
+            resume = typer.prompt(f"?      {done['interrupt']['question']}")
+        typer.echo(f"\n{done['answer']}\n")
+        for s in done["sources"]:
+            typer.echo(f"[{s['n']}] {s['type']} {s['ref'][:120]} {s.get('url') or ''}")
+        u = done["usage"]
+        typer.echo(f"\n${u['cost_usd']:.3f} · {u['calls']} calls · {u['steps']} steps · "
+                   f"{u['seconds']} s · {tracing.trace_link(done['trace_id'])}")  # fmt: skip
+        typer.echo(f'follow up: knesset ask "…" --thread {done["thread_id"]}')
     tracing.flush()
+
+
+def show(node: str, update: dict) -> None:
+    """One streamed step of `knesset ask`, as a short line."""
+    import json
+
+    if node == "plan":
+        for t in update.get("plan", []):
+            deps = f" (after {', '.join(t['depends_on'])})" if t["depends_on"] else ""
+            typer.echo(f"plan   {t['id']} → {t['agent']}{deps}: {t['instruction']}")
+    elif node == "event" and update.get("status") == "done":
+        status = update["error"] or f"{update['findings']} findings"
+        typer.echo(
+            f"agent  {update['task']} {update['agent']}: {status} (${update['cost_usd']:.3f})"
+        )
+    elif node == "tool":
+        typer.echo(
+            f"  tool {update['name']} {json.dumps(update['args'], ensure_ascii=False)[:110]}"
+        )
+    elif node == "verify":
+        v = update.get("verdict", {})
+        checked = f" ({v['checked']})" if v.get("checked") else ""
+        issues = "".join(f"\n       - [{i['kind']}] {i['problem']}" for i in v.get("issues", []))
+        typer.echo(f"verify {v.get('status')}{checked}{issues}")
+    elif node == "revise":
+        typer.echo("revise draft rewritten from the findings, flagged claims fixed")
+    if update.get("limit"):
+        typer.echo(f"limit  {update['limit']}")
 
 
 @app.command()

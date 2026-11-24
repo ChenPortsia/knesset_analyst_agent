@@ -292,6 +292,15 @@
 - The verdict stays `fail` on revised answers (they are not checked again); the answer says what was changed.
 - Fixed after the run: evidence URLs now come from the tool results (the summarizer once typed a malformed link).
 
+**LangGraph refactor (24 Nov 2026, the user: "use all LangGraph capabilities")** — PLAN §5 already names LangGraph with specialist subgraphs; this makes the specialists real subgraphs.
+- Models through LangChain: `agents/models.py` builds `ChatAnthropic` per agent (effort, server-side refusal fallback for Opus/Sonnet); a `BudgetCallback` charges every call and stops a call before it starts once a limit is hit. Any LangChain chat model plugs in through the factory (e.g. `ChatOpenAI` for a model matrix).
+- Specialists are `create_agent` subgraphs (tools, `ProviderStrategy` structured output, `ModelCallLimitMiddleware` at 8 calls). The hand-written Anthropic tool loop is gone; evidence checks (`keep_seen`) are unchanged.
+- Orchestrator graph: `Send` fan-out of ready tasks in parallel; `interrupt()` + `Command(resume=…)` to ask the user back; `Command(goto=…)` from verify; `RetryPolicy` on plan/draft/revise; budget and models in the runtime `Context`; streaming of node updates, custom agent events and the subgraphs' tool calls.
+- Memory: `PostgresSaver` checkpoints every thread (`knesset ask "…" --thread <id>` continues a conversation; the planner sees the last 3 turns), `PostgresStore` keeps entities resolved per user across threads. Both in schema `ops` (the etl role cannot create schemas).
+- `langgraph.json` for LangGraph Studio (`uv run --with "langgraph-cli[inmem]" langgraph dev`).
+- Tests: 99 (agents rewritten on a fake LangChain chat model: full graph, revise, re-plan once, SQL check in code, interrupt/resume, conversation + Store in Postgres, limits, CLI with ask-back, one trace per question).
+- **Not yet run with real models**: one `knesset ask`, then notebook 07 (projected ≈ $1.5) to compare with the third run above.
+
 ## Changes to the plan
 
 - 24 Nov 2026, the user: the per-question agent timeout is 150 s (PLAN §7 said 90 s): text questions finished at 91–98 s in the first notebook-07 run.
