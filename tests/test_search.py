@@ -37,6 +37,14 @@ DOCS = {
         ],
     ),
     "bill:2": ("bill", None, [("paragraphs", None, None, "הצעת חוק התקציב לשנת 2025.")]),
+    # the same background text attached to another session
+    "committee_session:3": (
+        "committee_session",
+        8,
+        [
+            ("paragraphs", None, None, "הרכבת לירושלים מתעכבת שוב."),
+        ],
+    ),
 }
 
 
@@ -134,7 +142,13 @@ def test_filters(chunks):
 
     assert hits(person_ids=[2]) == ids(person_id=2)
     assert hits(faction_ids=[30]) == ids(person_id=2)
-    assert hits(entity="ירושלים") == ids(speaker_raw="רונית לוי")
+    assert hits(entity="ירושלים", committee_ids=[7]) == ids(speaker_raw="רונית לוי")
     assert hits(doc_types=["bill"]) == ids(doc_id="bill:2")
+    assert hits(committee_ids=[8]) == ids(doc_id="committee_session:3")
     assert hits(knessets=[24]) == []
     assert hits(committee_ids=[7], date_to="2025-01-04") == []
+
+
+def test_identical_text_is_one_hit(chunks):
+    (w,) = search("רכבת", k=5, neighbors=0, encode=None)
+    assert w.doc_id == "committee_session:1" and w.also_in == ["committee_session:3"]

@@ -259,10 +259,11 @@ def search(
     ms = (time.perf_counter() - started) * 1000
     typer.echo(f"{len(windows)} windows in {ms:.0f} ms ({'keywords' if not encode else 'hybrid'})")
     for w in windows:
-        typer.echo(f"\n{w.score:.4f}  {w.doc_type} {w.doc_id}  {w.date}  {w.url}")
+        typer.echo(f"\n{w.score:.4f}  {w.group_type} · {w.doc_id}  {w.date}  {w.url}")
+        if w.also_in:
+            typer.echo(f"  same text also in {len(w.also_in)}: {', '.join(w.also_in[:5])}")
         for ch in w.chunks:
-            text = " ".join(ch.text.split())[:240]
-            typer.echo(f"  [{ch.mark:6}] {ch.speaker or ''}: {text}")
+            typer.echo(f"  [{ch.mark:6}] {' '.join(ch.text.split())[:240]}")
 
 
 @app.command()

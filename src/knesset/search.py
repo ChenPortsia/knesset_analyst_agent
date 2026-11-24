@@ -14,6 +14,7 @@ from typing import Any
 import structlog
 
 from knesset.db import connect
+from knesset.embed import plain
 
 CANDIDATES = 50  # per method, before fusion
 RRF_K = 60
@@ -106,7 +107,8 @@ class Chunk:
 
 @dataclass
 class Window:
-    """Consecutive chunks of one document around one or more hits."""
+    """Consecutive chunks of one document around one or more hits. Chunk text is shown without
+    protocol markup (`<< דובר >> X: << דובר >>` → `X:`)."""
 
     doc_id: str
     url: str
@@ -117,6 +119,7 @@ class Window:
     date: str | None
     score: float  # best fused score of its hits
     chunks: list[Chunk] = field(default_factory=list)
+    also_in: list[str] = field(default_factory=list)  # other documents with the same hit text
 
 
 def default_encoder() -> Encode | None:
@@ -151,7 +154,7 @@ def keyword_ids(conn: Any, query: str, where: str, p: dict) -> list[int]:
         f"""select c.chunk_id from text.chunks c join text.documents d using (doc_id),
                    websearch_to_tsquery('simple', text.he_strip(%(q)s)) as q
             where c.tsv_stripped @@ q and {where}
-            order by ts_rank_cd(c.tsv_stripped, q) desc limit {CANDIDATES}""",
+            order by ts_rank_cd(c.tsv_stripped, q) desc, c.chunk_id limit {CANDIDATES}""",
         p | {"q": query},
     ).fetchall()
     return [r[0] for r in rows]
@@ -164,6 +167,26 @@ def fuse(*rankings: list[int]) -> dict[int, float]:
         for rank, chunk_id in enumerate(ranking, 1):
             scores[chunk_id] = scores.get(chunk_id, 0.0) + 1 / (RRF_K + rank)
     return scores
+
+
+def dedupe(conn: Any, scores: dict[int, float], k: int) -> tuple[dict[int, float], dict]:
+    """The k best chunks with distinct text (the same background document is attached to many
+    sessions), and for each kept chunk the other documents its text appears in."""
+    rows = conn.execute(
+        "select chunk_id, chunk_hash, doc_id from text.chunks where chunk_id = any(%s)",
+        (list(scores),),
+    ).fetchall()
+    info = {cid: (h, doc) for cid, h, doc in rows}
+    kept: dict[str, int] = {}
+    also: dict[int, list[str]] = {}
+    for cid in sorted(scores, key=lambda x: -scores[x]):
+        h, doc = info[cid]
+        if h in kept:
+            also[kept[h]].append(doc)
+        elif len(kept) < k:
+            kept[h] = cid
+            also[cid] = []
+    return {cid: scores[cid] for cid in kept.values()}, also
 
 
 def expand(conn: Any, hits: dict[int, float], neighbors: int | None) -> list[Window]:
@@ -193,7 +216,7 @@ def expand(conn: Any, hits: dict[int, float], neighbors: int | None) -> list[Win
         if not w or w.doc_id != doc_id or w.chunks[-1].ord + 1 < ord_:
             w = Window(doc_id, url.replace("\\", "/"), ptype, gtype, knesset, committee, day, 0)
             windows.append(w)
-        w.chunks.append(Chunk(cid, ord_, "hit" if cid in hits else "", speaker, pid, text))
+        w.chunks.append(Chunk(cid, ord_, "hit" if cid in hits else "", speaker, pid, plain(text)))
         w.score = max(w.score, hits.get(cid, 0.0))
     for w in windows:
         first = next(c.ord for c in w.chunks if c.mark == "hit")
@@ -219,9 +242,10 @@ def search(
     with connect("agent_ro") as conn, conn.transaction():
         by_vector = vector_ids(conn, vec, where, p) if vec is not None else []
         by_keyword = keyword_ids(conn, query, where, p)
-        scores = fuse(by_vector, by_keyword)
-        top = dict(sorted(scores.items(), key=lambda kv: -kv[1])[:k])
+        top, also = dedupe(conn, fuse(by_vector, by_keyword), k)
         windows = expand(conn, top, neighbors)
+    for w in windows:
+        w.also_in = sorted({d for ch in w.chunks for d in also.get(ch.chunk_id, [])} - {w.doc_id})
     log.info(
         "search",
         ms=round((time.perf_counter() - started) * 1000),
