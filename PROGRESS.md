@@ -180,64 +180,46 @@
 - Many unresolved `דובר` speakers are committee legal advisors and officials (e.g. legal advisor ד"ר עידית חנוכה), and most guests are invitees: not in `dim_person`. A staff/guest list would be a later addition.
 - Header chunks rank high in keyword search; Phase 6 search should down-weight or filter them.
 
-## Phase 5 — Enrichment 🟡 in progress
+## Phase 5 — Enrichment ✅ (tag `phase-5`)
 
-**Step 1 — structured links (built, tested offline; real run pending)**
-- `sql/004_enrichment.sql`: `chunk_items`, `chunk_entities`, `topics`, `chunk_enrichment`, `document_summaries` (§5), all cascading from their chunk or document, so re-chunking invalidates enrichment.
-- `enrich/links.py` (`knesset links [--knessets]`, `make links`):
-  - Protocol chunks → session items: walking a protocol in order, each `<< נושא >> title << נושא >>` is matched to the session's items by shared words (≥ 60% of the shorter title). A chunk where a topic starts belongs to the old and the new topic; an unmatched topic ends the current one; header chunks link to every item their agenda lists; a one-item session links all its chunks.
-  - Speakers → `chunk_entities` (source `speaker`): the person, and their faction on the session date.
-  - Idempotent: each run replaces its own rows for the scope.
-- Tests: 44 total (4 new).
-- Real run (Knessets 25–26, 60 s): 491,385 chunk ↔ item links; 182,104 person and 172,520 faction entities (persons without a faction on the date are mostly ministers who are not MKs). Linked share: committee protocols 91.9%, plenum 38.6%. The plenum figure is mostly real: much of a plenum session is no-confidence motions, statements, committee changes and documents laid on the table, which are not agenda items, and a plenum session's item list is mostly bills laid on the table rather than debated.
+**Plan change (user, 22 Nov 2026): structure + NER instead of topic labeling.** Hand labeling topics per chunk proved ambiguous (law fragments, short chunks, document types differ). Topics now come from the documents' own markup and metadata; the only model-based NLP is named-entity recognition. The taxonomy, LLM teacher, classifier and labeling page stay in the code (`topics`, `topics-teach`, `topics-eval`, `topics-apply`, `label`; tests kept) but were not run and nothing was spent.
 
-**Step 2 — topic taxonomy (draft, awaiting the user's review)**
-- `src/knesset/enrich/topics.yaml`: 9 parents, 49 topics (47 נפגעי פעולות איבה, נכי צה"ל ומשפחות שכולות added during hand labeling), Hebrew + English, each noting which law classifications (`KNS_IsraelLawClassificiation`, 51 values) and committees it absorbs. `knesset topics` loads it into `text.topics` (removed topics are dropped).
+**Document types (`knesset samples`, `eval/samples/`)**: committee and plenum protocols are speaker-turn transcripts; bills (preliminary bills: sponsor header, clauses, דברי הסבר), law texts, committee drafts and secondary legislation are legal wording; background material, decisions, conclusions and press releases are short written documents; queries and agenda motions are one chunk each. The current chunking fits all of them; only protocols get sections and participants.
 
-**Topic strategy (agreed 19 Nov 2026): budget ≈ $10 for all topic labeling**
-- Instead of the LLM labeling topics on every chunk (plan §10 step 3), Claude Haiku 5.5 labels a stratified *teaching sample* (benchmark 500, then ≈ 25k, plus ≈ 10k for weak topics), and a classifier on the existing bge-m3 embeddings labels every chunk for free. Discovered clusters per period (emerging issues) are named with one LLM call per cluster. Keywords come free from word statistics. Stance, speech act and summaries per chunk get their own budget decision later.
-- Hard cap in code: every paid batch is projected first (free token counting on a sample) and refused if the projection exceeds `TOPIC_BUDGET_USD` (default $10) minus what the topic steps already spent; actual cost from the API's usage goes to `ops.llm_batches` and `ops.runs.cost_usd`.
+**Extraction fixes found by reading the samples (all protocols re-extracted, re-chunked, re-embedded)**
+- Speaker lines sit in Word content controls (`w:sdt`), which python-docx skipped: `docx_text` now reads every `w:t`, inline and block.
+- `clean()` dropped short lines repeated 5+ times as running headers, which deleted a frequent speaker's tagged line (`<< יור >> … << יור >>` ends in `>>`, not `:`). Lines with `<<` are always kept.
+- `extract --redo docx,doc` re-queues done documents of those types; unchanged text keeps its chunks and embeddings.
+- The embedder sees chunk text without protocol markers (`embed.plain`); the stored text keeps them.
+- WAF answers now pause every request for 60 s together (one `odata_paused` log line) instead of per-request backoff.
+- Effect (Knessets 25–26, committee protocols): chair (`יור`) chunks 2,958 → 117,095 (99.9% resolved); plenum speakers 94.4% resolved. Protocols without any speaker tag: 2 of 9,377 committee, 0 of 421 plenum. Chunk sizes: median 467 tokens (committee), 460 (plenum); < 1.3% under 30 tokens. Re-embedding: 627,473 chunks in 14.4 h on the Mac GPU (12 chunks/s).
 
-**Step 3 — teacher, classifier and gold set (built, tested offline; real runs pending)**
-- `sql/005_topic_labels.sql`: `text.topic_labels` (source `llm` or `user`), `ops.llm_batches` (with the request → chunk map, so an interrupted wait can be collected later), topic columns on `chunk_enrichment`, cost columns to 6 decimals.
-- `enrich/llm.py`: prices, cost from usage, projection, budget check, Batch API submit/collect.
-- `enrich/topics_llm.py` (`knesset topics-teach [--n] [--max-usd] [--dry-run]`, `knesset topics-collect`): sample spread round-robin across strata (document type × committee × year) before depth; skips headers, structural tags, < 60 tokens, duplicates and labeled chunks; 10 chunks per request, first 1,200 characters each, cached system prompt (instructions + taxonomy), JSON schema limited to valid topic ids (1–3), thinking off, effort low.
-- `enrich/topic_clf.py` (`knesset topics-eval`, `knesset topics-apply [--method logreg|knn]`): logistic regression per topic or a vote of the 15 nearest labeled chunks; best topic plus up to two more above a threshold tuned on held-out labels; micro/macro F1 and top-1 on held-out LLM labels and on the hand labels.
-- `enrich/label.py` + `label.html` (`knesset label [--n 150]`): a local labeling page (http://localhost:8765, standard library only) with the chunk right to left, topic checkboxes grouped by parent (any number; ★ marks an optional main topic), a free-text *specific issue* (e.g. רישוי יבוא רחפנים — evaluates keywords and clusters), optional sentiment and stance + target. Gold topics are "acceptable topics", not one exact answer: top-1 = the classifier's first topic is among them; F1 counts overlap. Saved at once to `eval/labeled_chunks.jsonl` and `topic_labels` (source `user`); resumable.
-- Tests: 49 total (fake Anthropic client: projection, budget refusal, batch round trip with actual cost; classifier on clustered synthetic embeddings; scripted labeling session).
-- Notebook `05_enrichment`: budget, labels, classifier quality, topic distribution, topic shares per quarter, samples.
+**Step 1 — links (`knesset links`)**: protocol chunks → session items by `<< נושא >>` titles; speakers → person and faction on the session date. After the fixes: 529,146 chunk ↔ item links, 329,666 person and 316,137 faction entities (was 182,104 / 172,520).
+
+**Step 2 — protocol structure (`knesset structure`, 93 s, no model)**
+- `text.sections`: protocols split at `<< נושא >>` / `<< הצח >>` / `<< הלסי >>`; a marker straight after a marker (< 20 words between) is one section and the נושא title wins; titles matched to session items. Words before a speaker line belong to whoever spoke last.
+- `text.section_speakers`: words and turns per speaker per section (דובר and דובר_המשך merged), speakers resolved as on chunks. This answers "share of the session per agenda item / speaker / faction".
+- `text.participants`: committee attendance lists — name, heading (חברי הוועדה, מוזמנים, …), description as written, organization (last comma part), person id for members and exact matches. The transcription service is skipped.
+- Results: 9,798 protocols, 15,381 sections, 217,529 section speakers, 229,257 participants. Committee sections 95.8% titled, 90.9% linked to an item; plenum 99.9% / 70.2% (the rest is procedure, not items). Top organizations: משרד האוצר (3,958 sessions), משרד המשפטים, המשרד לביטחון לאומי, משרד הביטחון, משרד הבריאות.
+- Caveat for the agent: filter by committee and session, not by a word in a title (a "תקציב" title search also returns unrelated bills).
+
+**Step 3 — NER (`make ner`, DictaBERT-NER, CC BY 4.0)**
+- `dicta-il/dictabert-ner` via the transformers pipeline (whole-word aggregation, stride 64) on the Mac GPU. Input: chunk text without speaker lines and markup; header chunks skipped. Kept labels: person, org, place (GPE/LOC), facility, event, product, work, language, misc; dates and titles dropped; score ≥ 0.5. Resumable through `text.chunk_ner`.
+- Linking: a person links to `dim_person` when the full name (any first-name word with the last name; geresh ignored) or a last name alone — if it is nobody's first name — belongs to exactly one person holding a position at that date; `ביבי` is an alias. Parties link to faction ids on exact names. Prefix forms merge into the plain form when it was also found (בישראל → ישראל, בכנסת → הכנסת; the article ה is never stripped).
+- Validated on three 2,000-chunk trials before the full run (each fixed: mid-word spans, the article stripped, prefix forms counted apart, last names and middle names unlinked, a first name linked as a last name). Final trial: 75.3% of people linked; unlinked are first names alone, shared last names (כהן, כץ, ביטון) and people outside the marts.
+- Full run: 691,207 chunks in 4.7 h (≈ 40 chunks/s); 3,821,394 entities, 461,399 linked; 1,070,899 prefix forms merged.
+- Known limit: a last name that is also a common first name of someone outside the marts can mislink (e.g. שירי → נאור שירי, where it may mean Shiri Bibas). The surface form is kept on every entity.
+
+**Tests**: 59. Notebook `05_enrichment`: links, sections (shares per item in one session, speakers in its largest item), participants, entities per type, top names, linked spot check.
+
+**Open**: section speakers and entities are not yet aggregated per faction in marts (the agent can join them); org entities beyond factions (ministries, committees, companies) keep their names without ids.
 
 ## Changes to the plan
 
+- 22 Nov 2026, the user: topic labeling paused; topics from markup and metadata, NER as the only model step (Phase 5 above).
 - 18 Nov 2026, approved by the user: Phase 1 full-load target changed from < ~1 h to < ~4.5 h (WAF-limited to ~2 requests/s). PLAN.md §4 and §10 updated.
 
 ## Decisions (PLAN §13)
 
-- LLM provider and models (decided 19 Nov 2026, start of Phase 5): **Anthropic Claude**. Bulk enrichment (Phase 5 tier 3): **Claude Haiku 5.5** (`claude-haiku-5-5`) via the Batch API, after a 500-chunk benchmark and the user's confirmation of the projected cost (rough estimate ≈ $55 for the ≈ 440k distinct priority-1 chunks, ±50% until Hebrew token counts are measured). Agents (Phase 7): **Claude Opus 5.5** (`claude-opus-5-5`) for the Orchestrator and Summarizer, **Claude Sonnet 5.5** (`claude-sonnet-5-5`) for the Analyst, Researcher and Verifier.
+- LLM provider and models (decided 19 Nov 2026, start of Phase 5): **Anthropic Claude**. Bulk enrichment (Phase 5 tier 3): **Claude Haiku 5.5** (`claude-haiku-5-5`) via the Batch API, after a 500-chunk benchmark and the user's confirmation of the projected cost (rough estimate ≈ $55 for the ≈ 440k distinct priority-1 chunks, ±50% until Hebrew token counts are measured). Not used in Phase 5 after the 22 Nov plan change (no paid enrichment ran); it stays the model if paid enrichment returns. Agents (Phase 7): **Claude Opus 5.5** (`claude-opus-5-5`) for the Orchestrator and Summarizer, **Claude Sonnet 5.5** (`claude-sonnet-5-5`) for the Analyst, Researcher and Verifier.
 - Handle PDF-only documents? **No** (decided 18 Nov 2026 after the Phase 3 gap report; revisit in Phase 7 if bill wording or query answers are needed). Other decisions: defaults still apply.
-
-### Plan change (user, Phase 5): structure + NER instead of topic labeling
-- Topic labeling (hand and LLM) is paused; the code stays (`topics-teach`, `label`) but is not run.
-- Topics come from the documents' own markup and metadata (`<< נושא >>`, item, bill and query titles).
-- The only model-based NLP is entity extraction (people, organizations, other named things), plus attendance lists parsed directly.
-- Per-type ingestion is decided after reading `eval/samples/` (`knesset samples`).
-
-### Finding from `eval/samples/`: speaker names were lost in .docx extraction
-- The Knesset puts speaker lines (`<< יור >>`, many `<< דובר >>`) in Word content controls (`w:sdt`). python-docx's `Paragraph.text` and the body loop skipped them. One 81k-character committee protocol kept only 3 tags; plenum chair lines were missing too.
-- Fix: `docx_text` reads every `w:t`, including inline and block content controls (test added).
-- Rerun: `make extract ARGS="--redo docx"`, then `make chunk`, `make embed`, `uv run knesset links`. Chunks whose text did not change keep their embeddings (deduplicated by `chunk_hash`).
-- The speaker-resolution numbers above (43%) predate this fix.
-- Second cause, found after the rerun: `clean()` dropped short lines repeated 5+ times as running headers. A tagged speaker line (`<< יור >> היו"ר X: << יור >>`) ends with `>>`, not `:`, so a chair or frequent speaker was deleted. Lines with `<<` are now always kept (test added). After the first rerun, committee chunks had only 2,958 `יור` chunks; the fix needs `make extract ARGS="--redo docx,doc --priority 2"` again.
-
-### Phase 5, step 2: protocol structure (`knesset structure`, no model)
-- `text.sections`: each protocol split at `<< נושא >>` / `<< הצח >>` / `<< הלסי >>` markers; title matched to the session item (`best_item`); words and turns per section. A marker straight after a marker (< 20 words between) is one section; the נושא title wins.
-- `text.section_speakers`: words and turns per speaker per section, speakers resolved to `dim_person` as on chunks. Answers "share of the session per agenda item / per speaker / per faction".
-- `text.participants`: committee attendance lists (name, list heading, description, organization = last comma part; person_id for members, exact matches for others). The transcription service is skipped.
-- Chunks and embeddings are untouched: the tables are built from `text.documents`.
-
-### Phase 5, step 3: NER (`make ner`)
-- Model: `dicta-il/dictabert-ner` through the transformers pipeline (aggregation "simple", stride 64), on the local GPU. The model card could not be read from the cloud session (huggingface.co is blocked there): check its license and labels on the Mac before the full run.
-- Input: chunk text without speaker lines and markup (speakers are already entities); header chunks skipped (attendance is in `text.participants`).
-- Labels kept: PER→person, ORG→org, GPE/LOC→place, FAC, EVE, DUC, WOA, ANG, MISC; dates (TIMEX) and titles (TTL) dropped; score ≥ 0.5.
-- Links: person → `dim_person` when the name (or the name without a Hebrew prefix letter) resolves to one person; org → faction id on an exact faction name. Other entities keep their surface form.
-- Resumable: `text.chunk_ner` lists the chunks read; re-chunked chunks are read again.

@@ -13,94 +13,149 @@
 
 # %% [markdown]
 # # 05 · Enrichment
-# Topics so far (teacher labels → classifier on the embeddings); NER, sentiment and the
-# per-period clusters are added with their steps.
+# Structure from the documents' own markup, and named entities:
+# 1. links: chunks → session items, speakers → person and faction (`knesset links`);
+# 2. protocol sections and attendance lists (`knesset structure`);
+# 3. named entities (`make ner`).
+#
+# Topic labeling (taxonomy, LLM teacher, classifier) is paused: the agent answers topic
+# questions from section titles and word counts instead.
 
 # %% tags=["parameters"]
 KNESSETS = [25, 26]
-SAMPLES = 8
+SAMPLES = 10
 
 # %%
-import pandas as pd
-from IPython.display import display
-
-from knesset.config import settings
-from knesset.enrich.llm import spent
-from knesset.enrich.topic_clf import evaluate
-from knesset.enrich.topics_llm import BUDGET_STEPS
 from knesset.nb import q
 
-scope = "{" + ",".join(map(str, KNESSETS)) + "}"
+scope = {"k": KNESSETS}
+IN_SCOPE = "d.knesset_num = any(%(k)s)"
 
 # %% [markdown]
-# ## Budget (topics)
+# ## 1 · Links
+# Share of chunks linked to a session item, and with a resolved speaker.
 
 # %%
-print(f"spent ${spent(BUDGET_STEPS):.2f} of ${settings().topic_budget_usd:.2f}")
-q("""select step, batch_id, model, n_requests, projected_usd, cost_usd, status, created_at
-     from ops.llm_batches order by created_at""")
+q(
+    f"""select d.parent_type, count(*) as chunks,
+           round(100.0 * count(*) filter (where exists (
+               select 1 from text.chunk_items i where i.chunk_id = c.chunk_id)) / count(*), 1)
+               as pct_with_item,
+           round(100.0 * count(c.person_id) / nullif(count(c.speaker_raw), 0), 1)
+               as pct_speakers_resolved
+        from text.chunks c join text.documents d using (doc_id)
+        where {IN_SCOPE} and d.parent_type in ('committee_session', 'plenum_session')
+        group by 1""",
+    scope,
+)
 
 # %% [markdown]
-# ## Labels
+# ## 2 · Sections
+# Each protocol split at its agenda markers; words and turns per section and speaker.
 
 # %%
-q("""select source, count(*) as chunks, count(distinct version) as taxonomy_versions
-     from text.topic_labels group by 1""")
+q(
+    f"""select d.parent_type, count(*) as sections, count(distinct s.doc_id) as protocols,
+           round(100.0 * count(s.title) / count(*), 1) as pct_titled,
+           round(100.0 * count(s.item_id) / count(*), 1) as pct_linked_to_item,
+           percentile_cont(0.5) within group (order by s.n_words) as median_words
+        from text.sections s join text.documents d using (doc_id)
+        where {IN_SCOPE} group by 1""",
+    scope,
+)
 
 # %% [markdown]
-# ## Classifier quality
-# Held-out LLM labels, and the hand-labeled gold set when present (`knesset label`).
-# micro/macro F1 over topics; top1 = the first predicted topic is one of the gold topics.
+# One committee session with several agenda items: the share of words per item, and who
+# spoke in the largest one.
 
 # %%
-pd.DataFrame(
-    {
-        m: {
-            "threshold": r["threshold"],
-            **{f"holdout_{k}": v for k, v in r["holdout"].items()},
-            **{f"user_{k}": v for k, v in r.get("user", {}).items()},
-        }
-        for m, r in evaluate().items()
-    }
-).T
+session = q(
+    f"""select s.doc_id from text.sections s join text.documents d using (doc_id)
+        where {IN_SCOPE} and d.parent_type = 'committee_session'
+        group by 1 having count(*) >= 3 order by random() limit 1""",
+    scope,
+)
+doc_id = session.doc_id[0] if len(session) else None
+q(
+    """select ord, left(title, 80) as title, n_words, n_turns,
+              round(100.0 * n_words / sum(n_words) over (), 1) as pct_of_session
+       from text.sections where doc_id = %(d)s order by ord""",
+    {"d": doc_id},
+)
+
+# %%
+q(
+    """select sp.speaker_raw, sp.role, sp.person_id is not null as resolved,
+              sp.n_words, sp.n_turns
+       from text.section_speakers sp
+       where sp.doc_id = %(d)s and sp.ord = (
+           select ord from text.sections where doc_id = %(d)s order by n_words desc limit 1)
+       order by sp.n_words desc""",
+    {"d": doc_id},
+)
 
 # %% [markdown]
-# ## Topic distribution
+# ## 3 · Participants
+# Committee attendance lists: who was invited, under which heading, from which organization.
 
 # %%
-topics = q(f"""select t.topic_id, p.name_he as parent, t.name_he as topic, count(*) as chunks
-               from text.chunk_enrichment e
-               join text.chunks c using (chunk_id) join text.documents d using (doc_id)
-               cross join unnest(e.topics) as u(topic)
-               join text.topics t on t.topic_id = u.topic::int
-               join text.topics p on p.topic_id = t.parent_id
-               where d.knesset_num = any('{scope}') group by 1, 2, 3 order by 4 desc""")
-topics
+q(
+    f"""select p.grp, count(*) as participants, count(p.person_id) as linked_to_person,
+           count(p.organization) as with_organization
+        from text.participants p join text.documents d using (doc_id)
+        where {IN_SCOPE} group by 1 order by 2 desc limit 12""",
+    scope,
+)
+
+# %%
+q(
+    f"""select p.organization, count(*) as appearances, count(distinct p.doc_id) as sessions
+        from text.participants p join text.documents d using (doc_id)
+        where {IN_SCOPE} and p.organization is not null
+        group by 1 order by 2 desc limit 20""",
+    scope,
+)
 
 # %% [markdown]
-# ## Topics through time
-# Share of chunks per parent topic and quarter (a chunk counts once per topic).
+# ## 4 · Named entities
+# DictaBERT-NER over chunk text (speaker lines and markup removed). People link to
+# `dim_person` when the name, or a last name alone, belongs to one person holding a position
+# at that date; parties link to their faction.
 
 # %%
-trend = q(f"""select date_trunc('quarter', d.doc_date)::date as quarter, p.name_he as parent,
-                     count(*) as chunks
-              from text.chunk_enrichment e
-              join text.chunks c using (chunk_id) join text.documents d using (doc_id)
-              cross join unnest(e.topics) as u(topic)
-              join text.topics t on t.topic_id = u.topic::int
-              join text.topics p on p.topic_id = t.parent_id
-              where d.knesset_num = any('{scope}') and d.doc_date is not null
-              group by 1, 2""")
-if not trend.empty:
-    share = trend.pivot(index="quarter", columns="parent", values="chunks").fillna(0)
-    display((share.div(share.sum(axis=1), axis=0) * 100).round(1))
+q(
+    f"""select e.type, count(*) as entities, count(distinct e.normalized) as distinct_names,
+           round(100.0 * count(e.ref_id) / count(*), 1) as pct_linked
+        from text.chunk_entities e join text.chunks c using (chunk_id)
+        join text.documents d using (doc_id)
+        where e.source = 'ner' and {IN_SCOPE} group by 1 order by 2 desc""",
+    scope,
+)
+
+# %%
+q(
+    f"""select type, normalized, n from (
+            select e.type, e.normalized, count(*) as n,
+                   row_number() over (partition by e.type order by count(*) desc) as rank
+            from text.chunk_entities e join text.chunks c using (chunk_id)
+            join text.documents d using (doc_id)
+            where e.source = 'ner' and e.type in ('person', 'org', 'place', 'misc')
+              and {IN_SCOPE}
+            group by 1, 2) t
+        where rank <= 8 order by type, n desc""",
+    scope,
+)
 
 # %% [markdown]
-# ## Samples
+# Spot check: last-name-only and prefixed mentions that were linked to a person.
 
 # %%
-q(f"""select c.doc_id, e.topics, e.topic_scores, left(c.text, 220) as start
-      from text.chunk_enrichment e join text.chunks c using (chunk_id)
-      join text.documents d using (doc_id)
-      where d.knesset_num = any('{scope}') and e.topics is not null
-      order by random() limit {SAMPLES}""")
+q(
+    f"""select e.surface, e.normalized, count(*) as n
+        from text.chunk_entities e join text.chunks c using (chunk_id)
+        join text.documents d using (doc_id)
+        where e.source = 'ner' and e.type = 'person' and e.ref_id is not null
+          and e.surface <> e.normalized and {IN_SCOPE}
+        group by 1, 2 order by random() limit %(n)s""",
+    scope | {"n": SAMPLES},
+)
