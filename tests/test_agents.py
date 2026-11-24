@@ -111,11 +111,15 @@ def test_json_schema_is_strict():
 
 
 def test_keep_seen_drops_invented_evidence():
-    evidence = [Evidence(type="chunk", ref="7"), Evidence(type="chunk", ref="999")]
+    evidence = [
+        Evidence(type="chunk", ref="7", url="https://typo"),
+        Evidence(type="chunk", ref="999"),
+    ]
     f = Finding(claim="x", confidence="high", evidence=evidence)
-    (kept,) = keep_seen([f], {("chunk", "7")})
+    (kept,) = keep_seen([f], {("chunk", "7"): "https://fs.knesset.gov.il/25/a.doc"})
     assert [e.ref for e in kept.evidence] == ["7"] and kept.confidence == "high"
-    (gone,) = keep_seen([f], set())
+    assert kept.evidence[0].url == "https://fs.knesset.gov.il/25/a.doc"  # the tool's, not typed
+    (gone,) = keep_seen([f], {})
     assert gone.evidence == [] and gone.confidence == "low"
 
 

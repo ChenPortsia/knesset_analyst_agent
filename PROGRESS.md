@@ -244,9 +244,9 @@
 - A connection per search (≈ 15–20 ms): the agents in Phase 7 should share a connection pool.
 - `summarize` needs the agent's model (Phase 7).
 
-## Phase 7 — Multi-agent system 🟡 in progress
+## Phase 7 — Multi-agent system ✅ (tag `phase-7`)
 
-**Built (tested offline with a fake Claude client; no paid run yet)**
+**Built** (tested offline with a fake Claude client; three paid notebook-07 runs, below)
 - `agents/contracts.py`: `AgentTask` → `AgentResult` (findings with evidence, artifacts, verdict, usage), pydantic, JSON — the A2A-ready contract.
 - `agents/llm.py`: one tool loop on the Anthropic SDK (`beta.messages.create`): tools and a strict JSON output schema in the same request, prompt caching (`cache_control`), server-side refusal fallbacks (`fallbacks: "default"`), at most 8 model calls per loop (the last without tools); cost per call at list prices; a per-question `Budget` (cost, agent turns, wall time) shared by all agents.
 - `agents/specialist.py`: analyst, researcher, summarizer, verifier = prompt + tools + model behind `run(task)`. A finding keeps only evidence its own tool calls returned in that task (invented ids are dropped and the claim becomes low confidence).
@@ -278,6 +278,19 @@
 - SQL-only answers are checked in code: every number in the answer must appear in the cited queries' results (or the question, or be a rank ≤ 20); otherwise the verifier runs.
 - A local reranker (`BAAI/bge-reranker-v2-m3`, cross-encoder, on the Mac GPU) re-orders the 20 best fused candidates; agents read the best 5 (`search_text` k default 5, at most 10). Plain `search()` stays without it (notebook-06 latency).
 - The verifier runs on Claude Haiku 5.5 (no server-side refusal fallback is sent for it).
+
+**Third notebook-07 run (≈ $1.49, all checks passed)** — acceptance:
+- Each specialist passes its smoke task: analyst 573 bills ($0.012, 3 s); researcher three cost-of-living statements with speaker and date ($0.031); summarizer six cited themes on construction waste ($0.095).
+- The verifier (Haiku 5.5) passes the correct draft and fails both planted errors (wrong number 1153 vs 573; the invented "most were opposition bills"), $0.0004 per check.
+- 10/10 mixed questions answered with citations within the limits: SQL questions $0.03, 11–14 s (checked in code, no verifier call); text questions $0.09–0.20, 55–83 s; one $0.40 / 104 s (Finance time share: a re-plan for missing information, then a revision). 6/10 drafts were revised after the check, each saying what it removed or corrected.
+- 10/10 traces in Phoenix (and Langfuse), handoffs included.
+- Cost per run: $2.75 → $3.70 → ≈ $1.49 over the three runs (per text question ≈ $0.30 → $0.47 → $0.14).
+
+**Open**
+- The planner sometimes picks the summarizer (Opus) and sometimes the researcher (Sonnet) for the same question; the summarizer costs ~3× more. Moving it to Sonnet is the user's option (`AGENT_SUMMARIZER_MODEL`).
+- Each `knesset ask` loads bge-m3 and the reranker (several seconds); a long-running server (Phase 9 UI) loads them once. A shared database connection pool is still to do.
+- The verdict stays `fail` on revised answers (they are not checked again); the answer says what was changed.
+- Fixed after the run: evidence URLs now come from the tool results (the summarizer once typed a malformed link).
 
 ## Changes to the plan
 

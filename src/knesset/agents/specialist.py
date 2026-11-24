@@ -54,13 +54,13 @@ def tools(agent: str) -> list:
     return list(AGENT_TOOLS[agent])
 
 
-def seen_refs(artifacts: list[dict]) -> set[tuple[str, str]]:
-    """(type, ref) of every piece of evidence the tools returned."""
-    seen = set()
+def seen_refs(artifacts: list[dict]) -> dict[tuple[str, str], str | None]:
+    """(type, ref) → url of every piece of evidence the tools returned."""
+    seen: dict[tuple[str, str], str | None] = {}
     for a in artifacts:
         out = a["output"] if isinstance(a["output"], dict) else {}
         for e in out.get("evidence", []):
-            seen.add((e["type"], norm(e["type"], str(e["ref"]))))
+            seen[(e["type"], norm(e["type"], str(e["ref"])))] = e.get("url")
     return seen
 
 
@@ -68,11 +68,13 @@ def norm(kind: str, ref: str) -> str:
     return re.sub(r"\s+", " ", ref).strip().lower() if kind == "sql" else ref.strip()
 
 
-def keep_seen(findings: list[Finding], seen: set[tuple[str, str]]) -> list[Finding]:
-    """Evidence the tools returned; a claim left without any becomes low confidence."""
+def keep_seen(findings: list[Finding], seen: dict[tuple[str, str], str | None]) -> list[Finding]:
+    """Evidence the tools returned, with the tool's url (the model may mistype it); a claim
+    left without any evidence becomes low confidence."""
     out = []
     for f in findings:
-        ev = [e for e in f.evidence if (e.type, norm(e.type, e.ref)) in seen]
+        ev = [e.model_copy(update={"url": seen[key]}) for e in f.evidence
+              if (key := (e.type, norm(e.type, e.ref))) in seen]  # fmt: skip
         out.append(
             f.model_copy(update={"evidence": ev, "confidence": f.confidence if ev else "low"})
         )
