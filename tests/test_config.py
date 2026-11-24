@@ -39,3 +39,23 @@ def test_env_file_is_the_repos_wherever_we_run(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert Settings.model_config["env_file"][0] == ROOT / ".env"
     assert (ROOT / "pyproject.toml").exists()
+
+
+def test_langfuse_exporter_only_with_keys(monkeypatch):
+    import base64
+
+    from knesset import tracing
+    from knesset.config import settings
+
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "")  # the repo's .env may hold real keys
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "")
+    settings.cache_clear()
+    assert tracing.langfuse_exporter() is None  # no keys: nothing leaves the machine
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
+    monkeypatch.setenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com/")
+    settings.cache_clear()
+    exporter = tracing.langfuse_exporter()
+    assert exporter._endpoint == "https://cloud.langfuse.com/api/public/otel/v1/traces"
+    expected = base64.b64encode(b"pk-lf-test:sk-lf-test").decode()
+    assert exporter._client._headers["authorization"] == f"Basic {expected}"

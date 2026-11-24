@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     agent_ro_password: str = "change-me-agent"
 
     phoenix_url: str = "http://localhost:6006"
+    # Langfuse Cloud receives the same traces when both keys are set (never logged)
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = "https://cloud.langfuse.com"
 
     odata_concurrency: int = 8
 

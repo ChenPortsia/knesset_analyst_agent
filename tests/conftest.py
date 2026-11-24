@@ -9,9 +9,12 @@ TEST_DB = "knesset_test"
 
 @pytest.fixture(autouse=True)
 def isolated_settings(tmp_path, monkeypatch):
-    """Logs go to a temp dir; Phoenix points at a closed port."""
+    """Logs go to a temp dir; Phoenix points at a closed port; no traces leave for Langfuse
+    (the repo's .env may hold real keys)."""
     monkeypatch.setenv("LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setenv("PHOENIX_URL", "http://127.0.0.1:1")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "")
     settings.cache_clear()
     yield
     settings.cache_clear()

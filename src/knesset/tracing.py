@@ -1,5 +1,7 @@
-"""OpenTelemetry → Phoenix. Call setup() once in an entry point; until then spans are no-ops."""
+"""OpenTelemetry → Phoenix, and Langfuse when its keys are in .env. Call setup() once in an
+entry point; until then spans are no-ops."""
 
+import base64
 import time
 from functools import cache
 
@@ -15,12 +17,32 @@ PROJECT = "knesset"
 
 @cache
 def setup(project: str = PROJECT) -> TracerProvider:
-    return register(
+    provider = register(
         project_name=project,
         endpoint=f"{settings().phoenix_url}/v1/traces",
         protocol="http/protobuf",
         batch=True,
         verbose=False,
+    )
+    if exporter := langfuse_exporter():
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+    return provider
+
+
+def langfuse_exporter() -> object | None:
+    """The same spans to Langfuse (OTLP over HTTP, Basic auth with the key pair), or None
+    without keys. Keys stay in .env and are never logged."""
+    s = settings()
+    if not (s.langfuse_public_key and s.langfuse_secret_key):
+        return None
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+    token = base64.b64encode(f"{s.langfuse_public_key}:{s.langfuse_secret_key}".encode()).decode()
+    return OTLPSpanExporter(
+        endpoint=f"{s.langfuse_base_url.rstrip('/')}/api/public/otel/v1/traces",
+        headers={"Authorization": f"Basic {token}"},
     )
 
 

@@ -258,6 +258,10 @@ def ask(
         span.set_attribute("user_id", user_id)
         span.set_attribute("thread_id", state["thread_id"])
         span.set_attribute("question", question[:500])
+        # trace-level fields Langfuse reads (Phoenix shows them as attributes)
+        span.set_attribute("langfuse.user.id", user_id)
+        span.set_attribute("langfuse.session.id", state["thread_id"])
+        span.set_attribute("input.value", question)
         final: State = dict(state)
         path = []
         for update in build(budget, api).stream(state, stream_mode="updates"):
@@ -267,6 +271,7 @@ def ask(
                 yield node, change or {}
         span.set_attribute("path", " → ".join(path))
         span.set_attribute("answer", final.get("answer", "")[:2000])
+        span.set_attribute("output.value", final.get("answer", ""))
         span.set_attribute("verdict", (final.get("verdict") or {}).get("status", ""))
         span.set_attribute("cost_usd", budget.usage.cost_usd)
         span.set_attribute("steps", budget.steps)
