@@ -27,13 +27,22 @@ def _to_file(_logger: Any, _name: str, event: dict) -> dict:
     return event
 
 
-def configure() -> None:
+def _warnings_only(_logger: Any, _name: str, event: dict) -> dict:
+    """After the file has the line: keep info and debug off the terminal."""
+    if event.get("level") in ("debug", "info"):
+        raise structlog.DropEvent
+    return event
+
+
+def configure(quiet: bool = False) -> None:
+    """quiet: every line still goes to the log file; only warnings and errors are printed."""
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso", utc=True),
             _to_file,
+            *([_warnings_only] if quiet else []),
             structlog.processors.JSONRenderer(ensure_ascii=False, default=str),
         ],
         # look up sys.stderr on each use, not once: it may be swapped (tests, notebooks)

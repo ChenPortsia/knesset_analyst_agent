@@ -171,3 +171,4 @@ def test_ask_cli(data, monkeypatch):  # noqa: F811
                  "agent  t1 analyst: 1 findings", "verify pass", "There are 3 people [1]",
                  "[1] sql select count(*)", "8 calls · 5 steps"):  # fmt: skip
         assert line in out.output, out.output
+    assert "tool_call" not in out.output  # tool calls go to the log file, not the terminal

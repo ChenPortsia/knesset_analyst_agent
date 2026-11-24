@@ -259,6 +259,7 @@
 - Notebook `07_agents` (paid, capped at $5 in the notebook): each specialist alone, the verifier on one correct and two planted-error drafts, 10 mixed questions, traces in Phoenix.
 - Tests: 87 (8 new: strict schema, invented evidence, specialist alone, full graph, re-plan then caveats, clarification, cost and step limits, the CLI).
 - Fixed on the way: Claude Opus 5.5 / Sonnet 5.5 cache reads cost 5% of the input price (the topic-labeling cost code assumed 10%).
+- First paid question (Mac): "כמה הצעות חוק עברו בכנסת ה-25?" → plan (1 analyst task) → SQL → verifier re-ran it → pass. Answer: 573, split into government 363 / private 199 / committee 11, with the SQL as source. $0.052, 7 calls, 4 steps, 24.7 s, trace in Phoenix. Fixes from it: the API key is passed from `.env` to the client; `knesset ask` keeps tool-call log lines in `logs/ask/` instead of the terminal.
 
 ## Changes to the plan
 

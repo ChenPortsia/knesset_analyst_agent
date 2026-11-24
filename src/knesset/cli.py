@@ -273,8 +273,14 @@ def ask(
 ) -> None:
     """Ask the agents a question (paid: Claude API; capped by AGENT_MAX_COST_USD per question).
     Streams each agent step, then the answer with its sources, cost and trace link."""
+    import structlog
+
+    from knesset import log as logs
     from knesset import tracing
     from knesset.agents.graph import ask as run_ask
+
+    logs.configure(quiet=True)  # tool calls go to logs/ask/; the steps are printed below
+    structlog.contextvars.bind_contextvars(step="ask")
 
     if not settings().anthropic_api_key:
         typer.echo("ERR  ANTHROPIC_API_KEY is not set in .env", err=True)
