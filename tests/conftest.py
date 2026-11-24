@@ -36,6 +36,12 @@ def db(monkeypatch):
         conn.execute("create extension vector; create extension pg_trgm")
         for schema in ("raw", "ops", "text", "marts"):
             conn.execute(f"create schema {schema} authorization etl")
+        # as in sql/000_init.sql: agent_ro reads marts and text (tables created by etl)
+        conn.execute("grant usage on schema marts, text to agent_ro")
+        conn.execute(
+            "alter default privileges for role etl in schema marts, text"
+            " grant select on tables to agent_ro"
+        )
     monkeypatch.setenv("DB_NAME", TEST_DB)
     settings.cache_clear()
     migrate()

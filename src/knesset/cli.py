@@ -237,6 +237,35 @@ def ner(
 
 
 @app.command()
+def search(
+    query: str,
+    k: int = typer.Option(5, help="Hits"),
+    knessets: str = typer.Option("", help="e.g. 25,26 or all (default: SCOPE_KNESSETS)"),
+    neighbors: int = typer.Option(-1, help="Chunks before/after each hit (-1: 1 for protocols)"),
+    keywords_only: bool = typer.Option(False, help="Skip the vector search"),
+) -> None:
+    """Hybrid search, printed with timings (the vector part needs the `embed` extra)."""
+    import time
+
+    from knesset.search import Filters, default_encoder
+    from knesset.search import search as run_search
+
+    encode = None if keywords_only else default_encoder()
+    filters = Filters(knessets=parse_knessets(knessets))
+    n = None if neighbors < 0 else neighbors
+    run_search(query, filters, k, n, encode)  # warm-up: model, caches
+    started = time.perf_counter()
+    windows = run_search(query, filters, k, n, encode)
+    ms = (time.perf_counter() - started) * 1000
+    typer.echo(f"{len(windows)} windows in {ms:.0f} ms ({'keywords' if not encode else 'hybrid'})")
+    for w in windows:
+        typer.echo(f"\n{w.score:.4f}  {w.doc_type} {w.doc_id}  {w.date}  {w.url}")
+        for ch in w.chunks:
+            text = " ".join(ch.text.split())[:240]
+            typer.echo(f"  [{ch.mark:6}] {ch.speaker or ''}: {text}")
+
+
+@app.command()
 def topics() -> None:
     """Load the topic taxonomy (src/knesset/enrich/topics.yaml) into text.topics."""
     from knesset.enrich.topics import load_topics
