@@ -92,12 +92,21 @@ def flatten(d: dict, prefix: str = "") -> dict:
     return out
 
 
-def recent_questions(n: int = 10, scan: int = 2000) -> list[dict]:
-    """The last n `question` spans in Phoenix with their attributes, newest first."""
+def recent_questions(n: int = 10, pages: int = 20) -> list[dict]:
+    """The last n `question` spans in Phoenix with their attributes, newest first. Pages through
+    the project's spans (at most 1,000 per request, the API's cap)."""
     url = f"{settings().phoenix_url}/v1/projects/{PROJECT}/spans"
-    resp = httpx.get(url, params={"limit": scan}, timeout=30)
-    resp.raise_for_status()
-    spans = [s for s in resp.json()["data"] if s.get("name") == "question"]
+    spans: list[dict] = []
+    cursor = None
+    for _ in range(pages):
+        params = {"limit": 1000} | ({"cursor": cursor} if cursor else {})
+        resp = httpx.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        body = resp.json()
+        spans += [s for s in body["data"] if s.get("name") == "question"]
+        cursor = body.get("next_cursor")
+        if not cursor or len(spans) >= n:
+            break
     spans.sort(key=lambda s: s.get("start_time", ""), reverse=True)
     out = []
     for s in spans[:n]:
