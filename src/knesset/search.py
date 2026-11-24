@@ -17,6 +17,8 @@ from knesset.db import connect
 from knesset.embed import plain
 
 CANDIDATES = 50  # per method, before fusion
+EXACT_MAX = 20_000  # filtered chunks compared exactly; above, the index's TOP_N, filtered
+TOP_N = 1000  # = hnsw.ef_search's maximum
 RRF_K = 60
 SESSION_TYPES = ("committee_session", "plenum_session")
 
@@ -145,31 +147,44 @@ def default_encoder() -> Encode | None:
     return _encoder
 
 
-def vector_ids(conn: Any, vec: Sequence[float], where: str, p: dict, exact: bool) -> list[int]:
-    """Nearest chunks by cosine distance. A selective filter (a committee, a speaker, …) leaves
-    few chunks, and the HNSW index would keep discarding neighbors from elsewhere (2 s for one
-    committee); comparing with the filtered chunks directly is faster there (≈ 0.25 s per 60k)."""
-    v = "[" + ",".join(f"{x:.5f}" for x in vec) + "]"
-    if exact:
-        rows = conn.execute(
-            f"""with cand as materialized (
-                    select c.chunk_id, c.embedding from text.chunks c
-                    join text.documents d using (doc_id)
-                    where c.embedding is not null and {where})
-                select chunk_id from cand order by embedding <=> %(v)s::halfvec
-                limit {CANDIDATES}""",
-            p | {"v": v},
-        ).fetchall()
-        return [r[0] for r in rows]
-    conn.execute("set local hnsw.ef_search = 100")
-    conn.execute("select set_config('hnsw.iterative_scan', 'relaxed_order', true)")
-    rows = conn.execute(
-        f"""select c.chunk_id from text.chunks c join text.documents d using (doc_id)
-            where c.embedding is not null and {where}
-            order by c.embedding <=> %(v)s::halfvec limit {CANDIDATES}""",
-        p | {"v": v},
-    ).fetchall()
-    return [r[0] for r in rows]
+def vector_ids(
+    conn: Any, vec: Sequence[float], where: str, p: dict, selective: bool
+) -> tuple[list[int], str]:
+    """Nearest chunks by cosine distance. Without a selective filter: the HNSW index with the
+    filter applied as it scans. With one (a committee, a speaker, …), the index would discard
+    most neighbors and keep scanning (2 s for one committee), so:
+    - up to EXACT_MAX matching chunks: exact distances over them (≈ 80 ms per 20k);
+    - more: the index's TOP_N nearest overall, then the filter (a big committee keeps plenty).
+    """
+    p = p | {"v": "[" + ",".join(f"{x:.5f}" for x in vec) + "]"}
+    scope = f"""from text.chunks c join text.documents d using (doc_id)
+                where c.embedding is not null and {where}"""
+    if selective:
+        (n,) = conn.execute(
+            f"select count(*) from (select 1 {scope} limit {EXACT_MAX + 1}) t", p
+        ).fetchone()
+        path = "exact" if n <= EXACT_MAX else "top_n"
+        if path == "exact":
+            sql = f"""with cand as materialized (select c.chunk_id, c.embedding {scope})
+                      select chunk_id from cand order by embedding <=> %(v)s::halfvec
+                      limit {CANDIDATES}"""
+        else:
+            conn.execute(f"set local hnsw.ef_search = {TOP_N}")
+            sql = f"""with top as materialized (
+                          select chunk_id, embedding <=> %(v)s::halfvec as dist
+                          from text.chunks where embedding is not null
+                          order by embedding <=> %(v)s::halfvec limit {TOP_N})
+                      select c.chunk_id from top join text.chunks c using (chunk_id)
+                      join text.documents d using (doc_id)
+                      where {where} order by top.dist limit {CANDIDATES}"""
+    else:
+        path = "index"
+        conn.execute("set local hnsw.ef_search = 100")
+        conn.execute("select set_config('hnsw.iterative_scan', 'relaxed_order', true)")
+        sql = (
+            f"select c.chunk_id {scope} order by c.embedding <=> %(v)s::halfvec limit {CANDIDATES}"
+        )
+    return [r[0] for r in conn.execute(sql, p).fetchall()], path
 
 
 def keyword_ids(conn: Any, query: str, where: str, p: dict) -> list[int]:
@@ -263,7 +278,9 @@ def search(
     encoder = default_encoder() if encode is True else encode or None
     vec = encoder([query])[0] if encoder else None
     with connect("agent_ro") as conn, conn.transaction():
-        by_vector = vector_ids(conn, vec, where, p, filters.selective) if vec is not None else []
+        by_vector, path = (
+            vector_ids(conn, vec, where, p, filters.selective) if vec is not None else ([], "none")
+        )
         by_keyword = keyword_ids(conn, query, where, p)
         top, also = dedupe(conn, fuse(by_vector, by_keyword), k)
         windows = expand(conn, top, neighbors)
@@ -273,6 +290,7 @@ def search(
         "search",
         ms=round((time.perf_counter() - started) * 1000),
         vector=len(by_vector),
+        vector_path=path,
         keyword=len(by_keyword),
         hits=len(top),
         windows=len(windows),

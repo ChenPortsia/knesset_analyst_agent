@@ -221,7 +221,7 @@
 - Filters: Knessets, committees, dates, document types, documents, speaker (person), speaker's faction, people mentioned (NER), any mentioned name, session items. Header chunks are excluded by default. Topic / sentiment / stance / speech-act filters are not built: those labels were not produced (Phase 5 plan change).
 - Identical text (the same background document attached to many sessions) counts once; `also_in` lists the other documents.
 - Neighbors: `ord ± n` in one query (default 1 for protocols, 0 otherwise), overlapping windows merged, chunks marked hit / before / after; text without protocol markup; `url`, `doc_id`, `chunk_id` on every result. Runs as `agent_ro`.
-- Selective filters (committee, speaker, faction, mentions, entity, items, documents) compare the query with the filtered chunks directly instead of the HNSW index: one committee took 1,991 ms through the index; exact distances over 60k chunks take ≈ 240 ms.
+- Selective filters (committee, speaker, faction, mentions, entity, items, documents): up to 20k matching chunks, exact distances over them; above, the HNSW index's 1,000 nearest chunks overall, then the filter. Through the index with the filter applied, one committee took 1,991 ms; exact distances over the whole Finance Committee took 563–3,390 ms. The search log line names the path (`vector_path` index / exact / top_n).
 - Measured on the Mac (Knessets 25–26, warm, notebook 06): hybrid median 123 ms, p90 429 ms over 5 queries × 3; keywords only 44 ms (target < 300 ms).
 
 **Tools (`tools/`)**: plain typed functions, each returning JSON with an `evidence` list, truncated text, and a log line + trace span per call (`tool_call`, `tool.<name>`).

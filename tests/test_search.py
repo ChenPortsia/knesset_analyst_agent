@@ -152,3 +152,15 @@ def test_filters(chunks):
 def test_identical_text_is_one_hit(chunks):
     (w,) = search("רכבת", k=5, neighbors=0, encode=None)
     assert w.doc_id == "committee_session:1" and w.also_in == ["committee_session:3"]
+
+
+def test_large_filtered_set_filters_the_index_neighbors(chunks, monkeypatch):
+    """Above EXACT_MAX matching chunks, the nearest chunks overall are filtered instead."""
+    import knesset.search as s
+
+    exact = [c.chunk_id for w in search("תחבורה", Filters(committee_ids=[7]), neighbors=0,
+                                         encode=encode) for c in w.chunks]  # fmt: skip
+    monkeypatch.setattr(s, "EXACT_MAX", 0)
+    filtered = [c.chunk_id for w in search("תחבורה", Filters(committee_ids=[7]), neighbors=0,
+                                            encode=encode) for c in w.chunks]  # fmt: skip
+    assert filtered == exact and len(exact) == 5  # the committee's 5 chunks without the header
