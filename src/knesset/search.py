@@ -22,8 +22,12 @@ RRF_K = 60
 SESSION_TYPES = ("committee_session", "plenum_session")
 
 Encode = Callable[[list[str]], Sequence[Sequence[float]]]
+Rerank = Callable[[str, list[str]], Sequence[float]]  # query, passages → relevance scores
+RERANKER = "BAAI/bge-reranker-v2-m3"
+RERANK_POOL = 20  # fused candidates the reranker scores
 log = structlog.get_logger()
 _encoder: Encode | None = None
+_reranker: Rerank | None = None
 
 
 @dataclass
@@ -146,6 +150,37 @@ def default_encoder() -> Encode | None:
     return _encoder
 
 
+def default_reranker() -> Rerank | None:
+    """bge-reranker-v2-m3 (a cross-encoder) on the local device, loaded once; None where the
+    `embed` extra is missing."""
+    global _reranker
+    if _reranker is None:
+        try:
+            from sentence_transformers import CrossEncoder
+
+            from knesset.config import detect_device, settings
+
+            model = CrossEncoder(RERANKER, device=detect_device(settings().device), max_length=512)
+
+            def score(query: str, passages: list[str]) -> Sequence[float]:
+                return model.predict([(query, t) for t in passages], batch_size=len(passages))
+
+            _reranker = score
+        except ImportError:
+            return None
+    return _reranker
+
+
+def rerank(conn: Any, query: str, top: dict[int, float], k: int, model: Rerank) -> dict[int, float]:
+    """The k candidates the cross-encoder scores highest, best first."""
+    ids = list(top)
+    texts = dict(conn.execute("select chunk_id, text from text.chunks where chunk_id = any(%s)",
+                              (ids,)).fetchall())  # fmt: skip
+    scores = model(query, [plain(texts[i])[:2000] for i in ids])
+    ranked = sorted(zip(ids, scores, strict=True), key=lambda x: -float(x[1]))[:k]
+    return {cid: float(s) for cid, s in ranked}
+
+
 def vector_ids(
     conn: Any, vec: Sequence[float], where: str, p: dict, selective: bool
 ) -> tuple[list[int], str]:
@@ -256,9 +291,11 @@ def search(
     k: int = 10,
     neighbors: int | None = None,
     encode: Encode | None | bool = True,
+    reranker: Rerank | None | bool = False,
 ) -> list[Window]:
     """The k best chunks for a query, as windows with their neighbors, best first.
-    encode=True loads bge-m3; False or None searches keywords only."""
+    encode=True loads bge-m3; False or None searches keywords only. reranker=True re-orders
+    the best RERANK_POOL fused candidates with the local cross-encoder before taking k."""
     filters = filters or Filters()
     where, p = filters.where()
     started = last = time.perf_counter()
@@ -281,7 +318,11 @@ def search(
         lap("vector")
         by_keyword = keyword_ids(conn, query, where, p)
         lap("keyword")
-        top, also = dedupe(conn, fuse(by_vector, by_keyword), k)
+        model = default_reranker() if reranker is True else reranker or None
+        top, also = dedupe(conn, fuse(by_vector, by_keyword), max(k, RERANK_POOL) if model else k)
+        if model and top:
+            top = rerank(conn, query, top, k, model)
+            lap("rerank")
         windows = expand(conn, top, neighbors)
         lap("expand")
     for w in windows:

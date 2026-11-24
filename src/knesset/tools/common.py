@@ -8,6 +8,7 @@ from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
 
+import psycopg
 import structlog
 
 from knesset.db import connect
@@ -63,10 +64,18 @@ def tool(fn: Callable[..., dict]) -> Callable[..., dict]:
 
 
 def rows(sql: str, params: dict | None = None) -> list[dict]:
-    with connect("agent_ro") as conn, conn.cursor() as cur:
+    return query(sql, params)[0]
+
+
+def query(sql: str, params: dict | None = None) -> tuple[list[dict], str]:
+    """Rows as dicts, and the statement with its values filled in: a citable, re-runnable SQL
+    source (rerun_sql) for counts that come from a tool rather than from the analyst."""
+    with connect("agent_ro") as conn, psycopg.ClientCursor(conn) as cur:
+        literal = " ".join(cur.mogrify(sql, params).split())
         cur.execute(sql, params)
         cols = [c.name for c in cur.description]
-        return [dict(zip(cols, jsonable(list(r)), strict=True)) for r in cur.fetchall()]
+        found = [dict(zip(cols, jsonable(list(r)), strict=True)) for r in cur.fetchall()]
+    return found, literal
 
 
 RESOLVE_SQL = """

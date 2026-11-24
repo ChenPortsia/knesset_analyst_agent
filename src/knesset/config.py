@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     agent_summarizer_model: str = "claude-opus-5-5"
     agent_analyst_model: str = "claude-sonnet-5-5"
     agent_researcher_model: str = "claude-sonnet-5-5"
-    agent_verifier_model: str = "claude-sonnet-5-5"
+    agent_verifier_model: str = "claude-haiku-5-5"  # user, 24 Nov 2026
     agent_max_cost_usd: float = 0.5  # per question, all agents together
     agent_max_steps: int = 12  # agent turns per question: an orchestrator step or a specialist task
     agent_timeout_s: float = 150.0

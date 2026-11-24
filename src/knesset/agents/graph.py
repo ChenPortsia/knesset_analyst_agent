@@ -5,13 +5,19 @@
 - delegate: tasks run through AgentClient, independent ones in parallel, dependent ones after
   the tasks they need (with those findings as context).
 - draft: an answer from the findings only, citing numbered sources.
-- verify: the verifier checks the draft against the cited chunks and SQL. On fail the
-  orchestrator plans again once with the issues; after that, the answer carries caveats.
+- verify: an answer whose sources are all SQL is checked in code first (every number in it
+  must appear in the cited queries' results); otherwise, or if that fails, the verifier
+  checks the most important claims against the cited chunks and SQL.
+- On fail the orchestrator thinks again, once: if the verifier says information is missing
+  (and budget is left) it re-plans only for that, then drafts and checks again; otherwise, or
+  after that, it revises the draft from the findings it has, dropping or qualifying each
+  flagged claim.
 - Limits (cost, steps, 90 s) end the run early with what is known, said so.
 """
 
 import contextvars
 import json
+import re
 import time
 import uuid
 from collections.abc import Iterator
@@ -27,9 +33,10 @@ from knesset.agents.llm import Budget, LimitReached, tool_loop
 from knesset.agents.specialist import model_for, prompt
 from knesset.config import settings
 from knesset.tools.common import resolve_entity
+from knesset.tools.sql import sql_query
 from knesset.tracing import tracer
 
-MAX_REPLANS = 1
+REDELEGATE_RESERVE_USD = 0.15  # re-plan for missing information only if this much is left
 
 
 class Task(BaseModel):
@@ -59,7 +66,8 @@ class State(TypedDict, total=False):
     results: list[dict]  # AgentResult per task
     draft: dict
     verdict: dict
-    replans: int
+    redelegated: bool  # the one re-plan for missing information was used
+    revised: bool
     limit: str  # why the run stopped early
     answer: str
     sources: list[dict]
@@ -92,6 +100,41 @@ def sources_text(sources: list[dict]) -> str:
     return "\n".join(f"[{s['n']}] {s['type']} {s['ref']} {s.get('url') or ''}" for s in sources)
 
 
+NUMBER = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?")
+DATE = re.compile(r"\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b")
+
+
+def numbers(text: str) -> set[str]:
+    """Numbers in a text, normalized: no thousands commas, no citation markers, dates split."""
+    text = DATE.sub(r"\1 \2 \3", re.sub(r"\[\d+\]", " ", text))
+    out = set()
+    for n in NUMBER.findall(text):
+        n = n.replace(",", "")
+        out.add(str(float(n)).removesuffix(".0") if "." in n else str(int(n)))
+    return out
+
+
+def sql_numbers_check(question: str, answer: str, sources: list[dict]) -> bool:
+    """For an answer whose sources are all SQL: re-run each query and check that every number
+    in the answer appears in the results (or in the question, or is a small rank). Any other
+    answer, or a number that does not appear, goes to the verifier."""
+    if not sources or any(s["type"] != "sql" for s in sources):
+        return False
+    found: set[str] = set()
+    try:
+        for s in sources:
+            for row in sql_query(s["ref"])["rows"]:
+                for cell in row:
+                    found |= numbers(str(cell))
+                    if isinstance(cell, float):
+                        found |= {f"{cell:.1f}".removesuffix(".0"), str(round(cell))}
+    except Exception:  # noqa: BLE001 — a query that fails to re-run is the verifier's to judge
+        return False
+    claimed = numbers(answer)
+    allowed = found | numbers(question) | {str(i) for i in range(21)}
+    return bool(claimed) and claimed <= allowed
+
+
 class Orchestrator:
     def __init__(self, budget: Budget, api: Any = None):
         self.budget, self.api = budget, api
@@ -102,16 +145,18 @@ class Orchestrator:
         if state.get("ui_filters"):
             text += f"\nFilters set by the user: {json.dumps(state['ui_filters'])}"
         if state.get("verdict", {}).get("status") == "fail":
+            missing = [i["problem"] for i in state["verdict"]["issues"] if i["kind"] == "missing"]
             text += (
-                "\n\nA first attempt was rejected by the verifier. Issues:\n- "
-                + "\n- ".join(state["verdict"]["issues"])
+                "\n\nThe verifier found information missing from a first answer:\n- "
+                + "\n- ".join(missing)
                 + "\n\nFindings so far:\n"
                 + findings_text(state["results"], sources_of(state["results"]))
-                + "\n\nPlan only the tasks that fix these issues."
+                + "\n\nPlan only the tasks (at most 2) that find the missing information."
             )
         plan, _, _ = tool_loop(model_for("orchestrator"), prompt("orchestrator"), text, Plan,
                                self.budget, [resolve_entity], "medium", self.api)  # fmt: skip
-        return {"plan": [t.model_dump() for t in plan.tasks], "clarification": plan.clarification}
+        update = {"plan": [t.model_dump() for t in plan.tasks], "clarification": plan.clarification}
+        return update | ({"redelegated": True} if state.get("verdict") else {})
 
     def delegate(self, state: State) -> State:
         tasks = {t["id"]: t for t in state["plan"]}
@@ -158,6 +203,8 @@ class Orchestrator:
 
     def verify(self, state: State) -> State:
         sources = state["sources"]
+        if sql_numbers_check(state["question"], state["draft"]["answer"], sources):
+            return {"verdict": {"status": "pass", "issues": [], "checked": "sql in code"}}
         task = AgentTask(
             task_id="verify",
             agent="verifier",
@@ -169,11 +216,27 @@ class Orchestrator:
         )
         with tracer().start_as_current_span("handoff.verifier"):
             result = client_for("verifier", self.api).run(task, self.budget)
-        verdict = result.verdict or {"status": "fail", "issues": [result.error or "no verdict"]}
-        if result.error and "limit" in result.error:
-            return {"verdict": verdict, "limit": result.error}
-        return {"verdict": verdict, "replans": state.get("replans", 0)
-                + (verdict["status"] == "fail")}  # fmt: skip
+        if result.verdict is None:  # the check itself failed: say so, do not loop
+            problem = {"claim": "", "problem": result.error or "no verdict", "kind": "unsupported"}
+            update: State = {"verdict": {"status": "fail", "issues": [problem]}}
+            return update | ({"limit": result.error} if "limit" in (result.error or "") else {})
+        return {"verdict": result.verdict}
+
+    def revise(self, state: State) -> State:
+        """Think again without searching: rewrite from the findings, fixing each issue."""
+        self.budget.step("revise")
+        sources = state["sources"]
+        issues = "\n".join(f"- {i['claim']}: {i['problem']}" for i in state["verdict"]["issues"])
+        text = (
+            f"Question: {state['question']}\n\nFindings (sources in brackets):\n"
+            f"{findings_text(state['results'], sources)}\n\nSources:\n{sources_text(sources)}"
+            f"\n\nYour draft:\n{state['draft']['answer']}\n\nThe verifier found these issues:\n"
+            f"{issues}\n\nRewrite the answer: remove or correct each flagged claim, or state it "
+            "as uncertain. Add no new fact. Say in caveats what you removed."
+        )
+        draft, _, _ = tool_loop(model_for("orchestrator"), prompt("draft"), text, Draft,
+                                self.budget, [], "medium", self.api)  # fmt: skip
+        return {"draft": draft.model_dump(), "revised": True}
 
     def finish(self, state: State) -> State:
         if state.get("clarification") and not state.get("plan"):
@@ -185,8 +248,9 @@ class Orchestrator:
         else:  # a limit stopped the run before the draft: list the findings
             answer = "Partial findings:\n" + findings_text(state.get("results", []), sources)
             notes = []
-        if state.get("verdict", {}).get("status") == "fail":
-            notes.append("Not fully verified: " + "; ".join(state["verdict"]["issues"]))
+        if state.get("verdict", {}).get("status") == "fail" and not state.get("revised"):
+            issues = "; ".join(i["problem"] for i in state["verdict"]["issues"])
+            notes.append(f"Not fully verified: {issues}")
         if state.get("limit"):
             notes.append(f"Stopped early: {state['limit']}.")
         if notes:
@@ -215,7 +279,7 @@ def guarded(step: Any, always: bool = False) -> Any:
 def build(budget: Budget, api: Any = None) -> Any:
     o = Orchestrator(budget, api)
     g = StateGraph(State)
-    for name in ("plan", "delegate", "draft", "verify", "finish"):
+    for name in ("plan", "delegate", "draft", "verify", "revise", "finish"):
         g.add_node(name, guarded(getattr(o, name), always=name == "finish"))
     g.set_entry_point("plan")
     g.add_conditional_edges(
@@ -225,14 +289,16 @@ def build(budget: Budget, api: Any = None) -> Any:
     g.add_conditional_edges("draft", lambda s: "finish" if s.get("limit") else "verify")
 
     def after_verify(s: State) -> str:
-        failed = s.get("verdict", {}).get("status") == "fail"
-        return (
-            "plan"
-            if failed and not s.get("limit") and s.get("replans", 0) <= MAX_REPLANS
-            else "finish"
-        )
+        verdict = s.get("verdict", {})
+        if verdict.get("status") != "fail" or s.get("limit"):
+            return "finish"
+        missing = any(i["kind"] == "missing" for i in verdict["issues"])
+        if missing and not s.get("redelegated") and budget.left_usd >= REDELEGATE_RESERVE_USD:
+            return "plan"
+        return "revise"
 
     g.add_conditional_edges("verify", after_verify)
+    g.add_edge("revise", "finish")
     g.add_edge("finish", END)
     return g.compile()
 

@@ -268,6 +268,17 @@
 - Cost by agent: summarizer $1.07 (68 calls: one Opus call per passage in its map-reduce tool), analyst $0.42, plan $0.40 (Opus, ~2.4 calls per question), researcher $0.37, draft $0.28 (Opus), verifier $0.20. Every call wrote the prompt cache, one-shot calls too.
 - Changes (the user chose all four): (A) the summarizer reads passages itself in one loop — the per-passage map-reduce tool is gone; (B) only tool loops use the prompt cache; (C) plan and draft on Sonnet 5.5; (D) the timeout is 150 s.
 
+**Second notebook-07 run ($3.70)**: answers were thorough and well cited, and the verifier caught real errors (an unsupported surname and title, uncited counts, testimony from another debate), but cost rose: 5/10 questions re-planned after a failed check, re-running the specialists with a growing context, and most still failed (4 hit the $0.50 cap, 1 the 150 s limit). Counts from `facets` / `share_of_words` had no citable evidence, and answers ran up to 35 sources.
+
+**Changes after it (the user's choice)**
+- Counts cite their SQL: `facets` and `share_of_words` return the statement they ran, values filled in, as `sql` evidence the verifier can re-run (`rerun_sql`); a test re-runs it and gets the same numbers.
+- Shorter output: at most 6 findings per task, answers of about 250 words and at most 10 sources.
+- Thinking again by issue kind: the verifier marks each issue `unsupported` or `missing`. Unsupported claims → the orchestrator revises the draft from the findings it has (one call, no new search). Missing information → it re-plans only for that, once, if at least $0.15 of the budget is left, then drafts and checks again (a second fail → revise).
+- The verifier checks at most 8 key claims, re-reading the chunks in one call.
+- SQL-only answers are checked in code: every number in the answer must appear in the cited queries' results (or the question, or be a rank ≤ 20); otherwise the verifier runs.
+- A local reranker (`BAAI/bge-reranker-v2-m3`, cross-encoder, on the Mac GPU) re-orders the 20 best fused candidates; agents read the best 5 (`search_text` k default 5, at most 10). Plain `search()` stays without it (notebook-06 latency).
+- The verifier runs on Claude Haiku 5.5 (no server-side refusal fallback is sent for it).
+
 ## Changes to the plan
 
 - 24 Nov 2026, the user: the per-question agent timeout is 150 s (PLAN §7 said 90 s): text questions finished at 91–98 s in the first notebook-07 run.
@@ -276,6 +287,7 @@
 
 ## Decisions (PLAN §13)
 
+- Verifier model (changed by the user, 24 Nov 2026): **Claude Haiku 5.5** instead of Sonnet 5.5; checking claims against cited chunks and SQL is a narrower task, and the planted-error test in notebook 07 is its quality check.
 - Orchestrator model (changed by the user, 24 Nov 2026): plan and draft run on **Claude Sonnet 5.5**, not Opus 5.5, to cut cost (they were 25% of the first notebook-07 run). The summarizer stays on Opus 5.5.
 - LLM provider and models (decided 19 Nov 2026, start of Phase 5): **Anthropic Claude**. Bulk enrichment (Phase 5 tier 3): **Claude Haiku 5.5** (`claude-haiku-5-5`) via the Batch API, after a 500-chunk benchmark and the user's confirmation of the projected cost (rough estimate ≈ $55 for the ≈ 440k distinct priority-1 chunks, ±50% until Hebrew token counts are measured). Not used in Phase 5 after the 22 Nov plan change (no paid enrichment ran); it stays the model if paid enrichment returns. Agents (Phase 7): **Claude Opus 5.5** (`claude-opus-5-5`) for the Orchestrator and Summarizer, **Claude Sonnet 5.5** (`claude-sonnet-5-5`) for the Analyst, Researcher and Verifier.
 - Handle PDF-only documents? **No** (decided 18 Nov 2026 after the Phase 3 gap report; revisit in Phase 7 if bill wording or query answers are needed). Other decisions: defaults still apply.

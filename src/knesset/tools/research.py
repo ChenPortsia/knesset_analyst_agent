@@ -6,7 +6,8 @@ from typing import Any
 from knesset.db import connect
 from knesset.embed import plain
 from knesset.search import Filters, Window, expand, search
-from knesset.tools.common import rows, tool, truncate
+from knesset.tools.common import query as run_query
+from knesset.tools.common import tool, truncate
 
 FILTER_KEYS = {f.name for f in fields(Filters)}
 FACETS = {  # by → (label expression, joins)
@@ -77,14 +78,15 @@ def shape(windows: list[Window]) -> dict:
 
 @tool
 def search_text(
-    query: str, filters: dict[str, Any] | None = None, k: int = 8, neighbors: int | None = None
+    query: str, filters: dict[str, Any] | None = None, k: int = 5, neighbors: int | None = None
 ) -> dict:
-    """Hybrid (meaning + keyword) search over Knesset texts. Each hit comes with its neighbors
+    """Hybrid (meaning + keyword) search over Knesset texts, re-ranked; the k best (default 5,
+    at most 10). Each hit comes with its neighbors
     (`before`/`after`; default 1 for protocols, 0 otherwise). Filters: knessets, committee_ids,
     date_from, date_to, doc_types, person_ids (speaker), faction_ids (speaker's faction),
     mentions (person ids mentioned), entity (a mentioned name), items ([item_type_id, item_id]),
     doc_ids."""
-    return shape(search(query, to_filters(filters), min(k, 20), neighbors))
+    return shape(search(query, to_filters(filters), min(k, 10), neighbors, reranker=True))
 
 
 @tool
@@ -154,14 +156,14 @@ def facets(by: str, filters: dict[str, Any] | None = None, query: str | None = N
     if query:
         where += " and c.tsv_stripped @@ websearch_to_tsquery('simple', text.he_strip(%(q)s))"
         p["q"] = query
-    counts = rows(
+    counts, sql = run_query(
         f"""select {label} as value, count(distinct c.chunk_id) as chunks,
                    count(distinct c.doc_id) as documents
             from text.chunks c join text.documents d using (doc_id) {join}
             where {where} group by 1 order by 2 desc limit 25""",
         p,
     )
-    return {"by": by, "counts": counts, "evidence": []}
+    return {"by": by, "counts": counts, "evidence": [{"type": "sql", "ref": sql}]}
 
 
 SHARE_BY = {  # by → (label over `b`, extra joins); `b` = the speaker rows in scope
@@ -225,7 +227,7 @@ def share_of_words(by: str, filters: dict[str, Any] | None = None, limit: int = 
             " (select * from unnest(%(it)s::int[], %(iid)s::bigint[]))"
         )
         p["it"], p["iid"] = [t for t, _ in f.items], [i for _, i in f.items]
-    shares = rows(
+    shares, sql = run_query(
         f"""with b as (
                 select d.doc_id, d.doc_date, d.committee_id, s.title, sp.person_id,
                        sp.speaker_raw, sp.n_words, sp.n_turns
@@ -242,4 +244,9 @@ def share_of_words(by: str, filters: dict[str, Any] | None = None, limit: int = 
     total = sum(r["words"] for r in shares) or 1
     for r in shares:
         r["pct"] = round(100 * r["words"] / total, 1)
-    return {"by": by, "total_words": total, "shares": shares[:limit], "evidence": []}
+    return {
+        "by": by,
+        "total_words": total,
+        "shares": shares[:limit],
+        "evidence": [{"type": "sql", "ref": sql}],  # re-runnable with rerun_sql
+    }

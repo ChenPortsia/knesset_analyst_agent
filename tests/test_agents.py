@@ -23,10 +23,12 @@ def block(**kw):
 
 class FakeClaude:
     """Answers like each agent would, chosen by the system prompt. `verdicts` scripts the
-    verifier; `cite` is the chunk id the researcher claims (None: the first one it found)."""
+    verifier ("pass", "unsupported" or "missing"); `cite` is the chunk id the researcher claims
+    (None: the first one it found); `answer` is the draft's text."""
 
-    def __init__(self, verdicts=("pass",), cite=None, plan=None):
+    def __init__(self, verdicts=("pass",), cite=None, plan=None, answer=None):
         self.verdicts, self.cite, self.plan = list(verdicts), cite, plan
+        self.answer = answer or "There are 3 people [1]; the train is late [2]."
         self.prompts: list[tuple[str, str]] = []
         self.lock = threading.Lock()
         self.beta = NS(messages=NS(create=self.create))
@@ -47,19 +49,30 @@ class FakeClaude:
     def create(self, system, messages, **kw):
         agent = system.split("# ")[2].split(" ")[0]  # the agent prompt's title
         self.cached = getattr(self, "cached", []) + [(agent, "tools" in kw, "cache_control" in kw)]
+        self.fallbacks = getattr(self, "fallbacks", []) + [(kw["model"], "fallbacks" in kw)]
         results = [b for m in messages if m["role"] == "user" and isinstance(m["content"], list)
                    for b in m["content"]]  # fmt: skip
         with self.lock:
             self.prompts.append((agent, messages[0]["content"]))
+        if agent == "Orchestrator" and "planning" in system and "missing" in messages[0]["content"]:
+            return self.final(
+                {
+                    "clarification": "",
+                    "tasks": [
+                        {"id": "t3", "agent": "researcher", "instruction": "more", "depends_on": []}
+                    ],
+                }
+            )
         if agent == "Orchestrator" and "planning" in system:
             return self.final(self.plan or {"clarification": "", "tasks": [
                 {"id": "t1", "agent": "analyst", "instruction": "count people", "depends_on": []},
                 {"id": "t2", "agent": "researcher", "instruction": "train delays",
                  "depends_on": ["t1"]},
             ]})  # fmt: skip
+        if agent == "Orchestrator" and "verifier found these issues" in messages[0]["content"]:
+            return self.final({"answer": "There are 3 people [1].", "caveats": "Removed the 4."})
         if agent == "Orchestrator":  # the draft
-            return self.final({"answer": "There are 3 people [1]; the train is late [2].",
-                               "caveats": ""})  # fmt: skip
+            return self.final({"answer": self.answer, "caveats": ""})
         if agent == "Analyst":
             if not results:
                 return self.call("sql_query", sql=SQL)
@@ -77,9 +90,11 @@ class FakeClaude:
         if agent == "Verifier":
             if not results:
                 return self.call("rerun_sql", sql=SQL)
-            status = self.verdicts.pop(0) if len(self.verdicts) > 1 else self.verdicts[0]
-            issues = [] if status == "pass" else ["the count is 3, not 4"]
-            return self.final({"status": status, "issues": issues})
+            kind = self.verdicts.pop(0) if len(self.verdicts) > 1 else self.verdicts[0]
+            if kind == "pass":
+                return self.final({"status": "pass", "issues": []})
+            issue = {"claim": "4 people", "problem": "the count is 3, not 4", "kind": kind}
+            return self.final({"status": "fail", "issues": [issue]})
         raise AssertionError(f"unexpected agent {agent!r}")
 
 
@@ -131,15 +146,45 @@ def test_full_graph(data):  # noqa: F811
     # only tool loops write the cache (their next call reads it); the one-shot draft does not
     assert all(tools == cached for _, tools, cached in api.cached)
     assert ("Orchestrator", False, False) in api.cached
+    # Haiku 5.5 (the verifier) has no server-side fallback: the parameter is not sent
+    assert ("claude-haiku-5-5", False) in api.fallbacks
+    assert ("claude-sonnet-5-5", True) in api.fallbacks
 
 
-def test_verifier_fail_replans_once_then_caveats(data):  # noqa: F811
-    nodes, result = run_graph(FakeClaude(verdicts=["fail", "pass"]))
-    assert nodes.count("plan") == 2 and result["verdict"]["status"] == "pass"
-    assert "⚠" not in result["answer"]
-    nodes, result = run_graph(FakeClaude(verdicts=["fail"]))
-    assert nodes.count("verify") == 2  # re-delegated once, then answered with caveats
-    assert "Not fully verified: the count is 3, not 4" in result["answer"]
+def test_unsupported_claims_are_revised_without_searching(data):  # noqa: F811
+    nodes, result = run_graph(FakeClaude(verdicts=["unsupported"]))
+    assert nodes == ["plan", "delegate", "draft", "verify", "revise", "finish"]
+    assert result["answer"].startswith("There are 3 people [1].")
+    assert "Removed the 4." in result["answer"] and "Not fully verified" not in result["answer"]
+
+
+def test_missing_information_is_delegated_once(data):  # noqa: F811
+    nodes, result = run_graph(FakeClaude(verdicts=["missing", "pass"]))
+    assert nodes == ["plan", "delegate", "draft", "verify", "plan", "delegate", "draft",
+                     "verify", "finish"]  # fmt: skip
+    assert [r["task_id"] for r in result["results"]] == ["t1", "t2", "t3"]
+    # still missing after the one re-plan: revise from what is there
+    nodes, _ = run_graph(FakeClaude(verdicts=["missing", "missing"]))
+    assert nodes[-3:] == ["verify", "revise", "finish"] and nodes.count("plan") == 2
+
+
+def test_sql_only_answer_is_checked_in_code(data):  # noqa: F811
+    task = {"id": "t1", "agent": "analyst", "instruction": "count people", "depends_on": []}
+    plan = {"clarification": "", "tasks": [task]}
+    api = FakeClaude(plan=plan, answer="There are 3 people [1].")
+    nodes, result = run_graph(api)
+    assert result["verdict"] == {"status": "pass", "issues": [], "checked": "sql in code"}
+    assert not any(a == "Verifier" for a, _ in api.prompts)  # no model call for the check
+    # a number the SQL did not return goes to the verifier (ranks up to 20 are allowed)
+    api = FakeClaude(plan=plan, answer="There are 40 people [1].", verdicts=["unsupported"])
+    nodes, _ = run_graph(api)
+    assert any(a == "Verifier" for a, _ in api.prompts) and "revise" in nodes
+
+
+def test_numbers_normalize():
+    assert graph.numbers("1,154 ישיבות [3], 91.5%, ב-24.3.2025") == {
+        "1154", "91.5", "24", "3", "2025"
+    }  # fmt: skip
 
 
 def test_clarification(data):  # noqa: F811

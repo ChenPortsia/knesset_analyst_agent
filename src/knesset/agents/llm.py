@@ -4,7 +4,7 @@ to the question's budget.
 - The final answer is JSON constrained by `output_config.format` (schema from a pydantic
   model); tools and the output schema go in the same request.
 - Forced tool choice is not available on these models: prompts say which tools to use.
-- Refusals fall back server-side (`fallbacks: "default"`).
+- Refusals fall back server-side (`fallbacks: "default"`) on Opus and Sonnet.
 - In tool loops the prefix is cached (`cache_control`): each call reads what the previous
   one wrote. One-shot calls (no tools) skip it: a cache write costs 1.25× and is never read.
 """
@@ -26,6 +26,7 @@ from knesset.tools.lc import tool_schema
 MAX_TOKENS = 16_000
 MAX_ROUNDS = 8  # model calls per tool loop; the last one may not call tools
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+FALLBACK_MODELS = {"claude-opus-5-5", "claude-sonnet-5-5"}  # Haiku 5.5 has no server-side fallback
 
 
 class LimitReached(RuntimeError):
@@ -144,6 +145,8 @@ def tool_loop(
         )
         if last and tool_defs:
             kwargs["tool_choice"] = {"type": "none"}
+        if model in FALLBACK_MODELS:
+            kwargs |= {"betas": [FALLBACK_BETA], "fallbacks": "default"}
         response = api.beta.messages.create(
             model=model,
             max_tokens=MAX_TOKENS,
@@ -153,8 +156,6 @@ def tool_loop(
                 "effort": effort,
                 "format": {"type": "json_schema", "schema": json_schema(output)},
             },
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
             **kwargs,
         )
         cost = call_cost(response, model)

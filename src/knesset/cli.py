@@ -302,10 +302,13 @@ def ask(
                            f"(${r['usage']['cost_usd']:.3f})")  # fmt: skip
         elif node == "verify":
             v = update.get("verdict", {})
-            typer.echo(
-                f"verify {v.get('status')}"
-                + "".join(f"\n       - {i}" for i in v.get("issues", []))
+            checked = f" ({v['checked']})" if v.get("checked") else ""
+            issues = "".join(
+                f"\n       - [{i['kind']}] {i['problem']}" for i in v.get("issues", [])
             )
+            typer.echo(f"verify {v.get('status')}{checked}{issues}")
+        elif node == "revise":
+            typer.echo("revise draft rewritten from the findings, flagged claims fixed")
         elif node == "done":
             typer.echo(f"\n{update['answer']}\n")
             for s in update["sources"]:

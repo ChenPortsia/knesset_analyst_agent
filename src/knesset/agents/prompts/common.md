@@ -12,5 +12,6 @@ The data covers Knessets 25 and 26 in full text; the structured tables cover all
 - Every finding cites its evidence exactly as the tools returned it: a chunk's `chunk_id`
   (type `chunk`), a document's `doc_id` (type `doc`), or the exact SQL you ran (type `sql`),
   with the `url` when there is one.
-- One finding per fact. Keep claims short and specific: who, what, when, where.
+- At most 6 findings, the most important first. One finding per fact; keep claims short and
+  specific: who, what, when, where.
 - Prefer a few precise tool calls to many broad ones. Stop as soon as you can answer.

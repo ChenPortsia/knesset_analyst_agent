@@ -164,3 +164,18 @@ def test_large_filtered_set_uses_the_index(chunks, monkeypatch):
     filtered = [c.chunk_id for w in search("תחבורה", Filters(committee_ids=[7]), neighbors=0,
                                             encode=encode) for c in w.chunks]  # fmt: skip
     assert filtered == exact and len(exact) == 5  # the committee's 5 chunks without the header
+
+
+def test_reranker_reorders_the_pool(chunks):
+    """The cross-encoder scores the fused candidates; the k it likes best are kept."""
+    seen = []
+
+    def prefer_closing(query, texts):
+        seen.append(len(texts))
+        return [1.0 if "נעולה" in t else 0.0 for t in texts]
+
+    plain_order = search("תקציב רכבת", k=1, neighbors=0, encode=encode)
+    reranked = search("תקציב רכבת", k=1, neighbors=0, encode=encode, reranker=prefer_closing)
+    assert seen and seen[0] > 1  # the pool, not just k
+    assert "נעולה" not in plain_order[0].chunks[0].text
+    assert "נעולה" in reranked[0].chunks[0].text

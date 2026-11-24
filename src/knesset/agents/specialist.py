@@ -15,6 +15,7 @@ from knesset.tools.lc import AGENT_TOOLS
 from knesset.tracing import tracer
 
 PROMPTS = Path(__file__).with_name("prompts")
+MAX_FINDINGS = 6  # per task, most important first: shorter drafts, fewer claims to check
 EFFORT = {"analyst": "medium", "researcher": "medium", "summarizer": "medium", "verifier": "medium"}
 
 
@@ -23,9 +24,18 @@ class Answer(BaseModel):
     gaps: str = Field(description="What could not be found or checked; empty if nothing")
 
 
+class Issue(BaseModel):
+    claim: str = Field(description="The draft's claim, briefly")
+    problem: str = Field(description="What is wrong, and what the source shows instead")
+    kind: Literal["unsupported", "missing"] = Field(
+        description="unsupported: the claim is wrong, overstated or not in its source; "
+        "missing: the answer needs information the findings do not have"
+    )
+
+
 class Verdict(BaseModel):
     status: Literal["pass", "fail"]
-    issues: list[str] = Field(description="Each unsupported or wrong claim and why; empty on pass")
+    issues: list[Issue] = Field(description="Empty on pass")
 
 
 def prompt(name: str) -> str:
@@ -96,7 +106,7 @@ def run(task: AgentTask, budget: Budget, api: Any = None) -> AgentResult:
         if isinstance(answer, Verdict):
             result.verdict = answer.model_dump()
         else:
-            result.findings = keep_seen(answer.findings, seen_refs(artifacts))
+            result.findings = keep_seen(answer.findings, seen_refs(artifacts))[:MAX_FINDINGS]
             if answer.gaps:
                 result.findings.append(
                     Finding(claim=f"Gaps: {answer.gaps}", evidence=[], confidence="low")
@@ -104,4 +114,4 @@ def run(task: AgentTask, budget: Budget, api: Any = None) -> AgentResult:
         return result
 
 
-__all__ = ["Answer", "Evidence", "Verdict", "run"]
+__all__ = ["Answer", "Evidence", "Issue", "Verdict", "run"]

@@ -34,6 +34,9 @@ create table marts.fct_person_position as
 @pytest.fixture
 def data(chunks, monkeypatch):  # noqa: F811
     monkeypatch.setattr(search_module, "default_encoder", lambda: encode)
+    # never load the real cross-encoder in tests: keep the fused order
+    monkeypatch.setattr(search_module, "default_reranker",
+                        lambda: lambda q, texts: [-i for i in range(len(texts))])  # fmt: skip
     with connect() as conn:
         conn.execute(MARTS)
         conn.execute("""insert into text.sections values
@@ -185,3 +188,15 @@ def test_langchain_tools(data):
     assert "does not exist" in sql.invoke({"sql": "select * from marts.nope"})
     (search,) = [t for t in tools_for("researcher") if t.name == "search_text"]
     assert set(search.args) == {"query", "filters", "k", "neighbors"}
+
+
+def test_counts_cite_rerunnable_sql(data):
+    """facets and share_of_words cite the SQL they ran; re-running it gives the same numbers."""
+    f = facets("speaker", {"doc_types": ["committee_session"]}, query="תקציב")
+    (ev,) = f["evidence"]
+    assert ev["type"] == "sql" and "%(" not in ev["ref"]
+    again = rerun_sql(ev["ref"])
+    assert [r[0] for r in again["rows"]] == [r["value"] for r in f["counts"]]
+    s = share_of_words("faction", {"committee_ids": [7]})
+    rows = rerun_sql(s["evidence"][0]["ref"])["rows"]
+    assert {r[0]: r[1] for r in rows} == {r["value"]: r["words"] for r in s["shares"]}
