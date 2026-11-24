@@ -4,6 +4,7 @@ entry point; until then spans are no-ops."""
 import base64
 import time
 from functools import cache
+from typing import Any
 
 import httpx
 from opentelemetry import trace
@@ -24,11 +25,17 @@ def setup(project: str = PROJECT) -> TracerProvider:
         batch=True,
         verbose=False,
     )
+    add_langfuse(provider)
+    return provider
+
+
+def add_langfuse(provider: Any) -> None:
+    """Also send every span to Langfuse, keeping Phoenix's exporter: phoenix.otel's provider
+    drops its default processor when another is added unless told not to."""
     if exporter := langfuse_exporter():
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        provider.add_span_processor(BatchSpanProcessor(exporter))
-    return provider
+        provider.add_span_processor(BatchSpanProcessor(exporter), replace_default_processor=False)
 
 
 def langfuse_exporter() -> object | None:

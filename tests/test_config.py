@@ -59,3 +59,23 @@ def test_langfuse_exporter_only_with_keys(monkeypatch):
     assert exporter._endpoint == "https://cloud.langfuse.com/api/public/otel/v1/traces"
     expected = base64.b64encode(b"pk-lf-test:sk-lf-test").decode()
     assert exporter._client._headers["authorization"] == f"Basic {expected}"
+
+
+def test_langfuse_keeps_the_phoenix_exporter(monkeypatch):
+    """phoenix.otel replaces its own exporter when another processor is added, by default."""
+    from phoenix.otel import TracerProvider
+
+    from knesset import tracing
+    from knesset.config import settings
+
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
+    settings.cache_clear()
+    provider = TracerProvider(endpoint="http://127.0.0.1:1/v1/traces", protocol="http/protobuf",
+                              verbose=False)  # fmt: skip
+    assert provider._default_processor is not None
+    tracing.add_langfuse(provider)
+    assert provider._default_processor is not None  # Phoenix still gets every span
+    names = [type(p).__name__ for p in provider._active_span_processor._span_processors]
+    assert len(names) == 2, names
+    provider.shutdown()
