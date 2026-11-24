@@ -261,16 +261,29 @@ def search(
     encode=True loads bge-m3; False or None searches keywords only."""
     filters = filters or Filters()
     where, p = filters.where()
-    started = time.perf_counter()
+    started = last = time.perf_counter()
+    steps: dict[str, int] = {}  # ms per step, in the log line
+
+    def lap(step: str) -> None:
+        nonlocal last
+        now = time.perf_counter()
+        steps[f"{step}_ms"] = round((now - last) * 1000)
+        last = now
+
     encoder = default_encoder() if encode is True else encode or None
     vec = encoder([query])[0] if encoder else None
+    lap("encode")
     with connect("agent_ro") as conn, conn.transaction():
+        lap("connect")
         by_vector, path = (
             vector_ids(conn, vec, where, p, filters.selective) if vec is not None else ([], "none")
         )
+        lap("vector")
         by_keyword = keyword_ids(conn, query, where, p)
+        lap("keyword")
         top, also = dedupe(conn, fuse(by_vector, by_keyword), k)
         windows = expand(conn, top, neighbors)
+        lap("expand")
     for w in windows:
         w.also_in = sorted({d for ch in w.chunks for d in also.get(ch.chunk_id, [])} - {w.doc_id})
     log.info(
@@ -281,5 +294,6 @@ def search(
         keyword=len(by_keyword),
         hits=len(top),
         windows=len(windows),
+        **steps,
     )
     return windows
