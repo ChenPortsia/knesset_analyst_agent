@@ -232,7 +232,7 @@
 - `tools/lc.py`: LangChain `StructuredTool`s per agent; bad filters and SQL errors go back to the agent as text.
 - Orchestrator state tools (`plan`, `delegate`, `ask_user`, `finish`) come with the graph in Phase 7.
 
-**Tests**: 79. Notebook `06_retrieval_tools`: latency over 5 queries × 3, best hits, every tool with shape checks.
+**Tests**: 78. Notebook `06_retrieval_tools`: latency over 5 queries × 3, best hits, every tool with shape checks.
 
 ## Changes to the plan
 
