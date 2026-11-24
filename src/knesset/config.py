@@ -6,8 +6,13 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+ROOT = Path(__file__).resolve().parents[2]
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # The repo's .env wherever the process starts (notebooks run in notebooks/); a .env in the
+    # working directory overrides it. In containers the variables come from compose.
+    model_config = SettingsConfigDict(env_file=(ROOT / ".env", ".env"), extra="ignore")
 
     db_host: str = "localhost"
     db_port: int = 5432

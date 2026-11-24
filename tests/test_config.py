@@ -30,3 +30,12 @@ def test_device_auto(monkeypatch):
 def test_device_without_torch(monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", None)  # makes `import torch` raise ImportError
     assert detect_device() == "cpu"
+
+
+def test_env_file_is_the_repos_wherever_we_run(tmp_path, monkeypatch):
+    """Notebooks run in notebooks/: settings must still read the repo's .env."""
+    from knesset.config import ROOT, Settings
+
+    monkeypatch.chdir(tmp_path)
+    assert Settings.model_config["env_file"][0] == ROOT / ".env"
+    assert (ROOT / "pyproject.toml").exists()
