@@ -164,26 +164,29 @@ def facets(by: str, filters: dict[str, Any] | None = None, query: str | None = N
     return {"by": by, "counts": counts, "evidence": []}
 
 
-SHARE_BY = {  # by → (label, extra joins); measures come from text.sections / section_speakers
-    "section": ("coalesce(s.title, '(פתיחה)')", ""),
+SHARE_BY = {  # by → (label over `b`, extra joins); `b` = the speaker rows in scope
+    "section": ("coalesce(b.title, '(פתיחה)')", ""),
     "speaker": (
-        "coalesce(pe.full_name, sp.speaker_raw)",
+        "coalesce(pe.full_name, b.speaker_raw)",
         "left join marts.dim_person pe using (person_id)",
     ),
     "faction": (
-        "coalesce(pp.faction_name, '(ללא סיעה)')",
-        """left join lateral (
-               select faction_name from marts.fct_person_position pp
-               where pp.person_id = sp.person_id and pp.faction_id is not null
-                 and d.doc_date >= pp.start_date
-                 and d.doc_date < coalesce(pp.finish_date + interval '1 day', 'infinity')
-               order by pp.start_date desc limit 1) pp on true""",
+        "coalesce(fac.faction_name, '(ללא סיעה)')",
+        "left join fac using (person_id, doc_date)",
     ),
     "committee": (
-        "coalesce(cm.committee_name, d.committee_id::text)",
-        "left join marts.dim_committee cm on cm.committee_id = d.committee_id",
+        "coalesce(cm.committee_name, b.committee_id::text)",
+        "left join marts.dim_committee cm using (committee_id)",
     ),
 }
+# The speaker's faction on the day: once per (person, date), with a hash join on person.
+FACTIONS = """, fac as (
+    select distinct on (x.person_id, x.doc_date) x.person_id, x.doc_date, pp.faction_name
+    from (select distinct person_id, doc_date from b where person_id is not null) x
+    join marts.fct_person_position pp on pp.person_id = x.person_id
+         and pp.faction_id is not null and x.doc_date >= pp.start_date
+         and x.doc_date < coalesce(pp.finish_date + interval '1 day', 'infinity')
+    order by x.person_id, x.doc_date, pp.start_date desc)"""
 
 
 @tool
@@ -221,12 +224,16 @@ def share_of_words(by: str, filters: dict[str, Any] | None = None, limit: int = 
         )
         p["it"], p["iid"] = [t for t, _ in f.items], [i for _, i in f.items]
     shares = rows(
-        f"""select {label} as value, sum(sp.n_words) as words, sum(sp.n_turns) as turns,
-                   count(distinct d.doc_id) as sessions
-            from text.section_speakers sp
-            join text.sections s using (doc_id, ord)
-            join text.documents d using (doc_id) {join}
-            where {" and ".join(cond)}
+        f"""with b as (
+                select d.doc_id, d.doc_date, d.committee_id, s.title, sp.person_id,
+                       sp.speaker_raw, sp.n_words, sp.n_turns
+                from text.section_speakers sp
+                join text.sections s using (doc_id, ord)
+                join text.documents d using (doc_id)
+                where {" and ".join(cond)}){FACTIONS if by == "faction" else ""}
+            select {label} as value, sum(b.n_words) as words, sum(b.n_turns) as turns,
+                   count(distinct b.doc_id) as sessions
+            from b {join}
             group by 1 order by 2 desc""",
         p,
     )

@@ -1,6 +1,7 @@
 """Shared by all agents: the tool decorator, truncation, and resolve_entity."""
 
 import functools
+import inspect
 import json
 import time
 from collections.abc import Callable
@@ -31,7 +32,7 @@ def jsonable(value: Any) -> Any:
     if isinstance(value, list | tuple):
         return [jsonable(v) for v in value]
     if isinstance(value, dict):
-        return {k: jsonable(v) for k, v in value.items()}
+        return {str(k): jsonable(v) for k, v in value.items()}
     return str(value)
 
 
@@ -41,7 +42,8 @@ def tool(fn: Callable[..., dict]) -> Callable[..., dict]:
     @functools.wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> dict:
         started = time.perf_counter()
-        call = {"tool": fn.__name__, "args": json.dumps(jsonable(kwargs), ensure_ascii=False)[:500]}
+        bound = inspect.signature(fn).bind(*args, **kwargs).arguments
+        call = {"tool": fn.__name__, "args": json.dumps(jsonable(bound), ensure_ascii=False)[:500]}
         with tracer().start_as_current_span(f"tool.{fn.__name__}") as span:
             span.set_attribute("tool.args", call["args"])
             try:
