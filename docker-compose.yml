@@ -22,6 +22,16 @@ services:
   db:
     image: pgvector/pgvector:pg17
     shm_size: 2gb  # parallel index builds (HNSW) need shared memory; Docker's default is 64 MB
+    # The HNSW index (~2 GB for Knessets 25-26) must fit in shared buffers, or vector search
+    # reads from disk (2.3 s instead of ~0.1 s). pg_prewarm reloads the cached pages at startup.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${DB_SHARED_BUFFERS:-3GB}
+      - -c
+      - effective_cache_size=${DB_EFFECTIVE_CACHE:-5GB}
+      - -c
+      - shared_preload_libraries=pg_prewarm
     env_file: .env
     environment:
       POSTGRES_DB: ${DB_NAME:-knesset}

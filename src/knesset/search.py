@@ -17,8 +17,7 @@ from knesset.db import connect
 from knesset.embed import plain
 
 CANDIDATES = 50  # per method, before fusion
-EXACT_MAX = 20_000  # filtered chunks compared exactly; above, the index's TOP_N, filtered
-TOP_N = 1000  # = hnsw.ef_search's maximum
+EXACT_MAX = 20_000  # filtered chunks compared exactly (≈ 80 ms per 20k); above, the index
 RRF_K = 60
 SESSION_TYPES = ("committee_session", "plenum_session")
 
@@ -150,35 +149,23 @@ def default_encoder() -> Encode | None:
 def vector_ids(
     conn: Any, vec: Sequence[float], where: str, p: dict, selective: bool
 ) -> tuple[list[int], str]:
-    """Nearest chunks by cosine distance. Without a selective filter: the HNSW index with the
-    filter applied as it scans. With one (a committee, a speaker, …), the index would discard
-    most neighbors and keep scanning (2 s for one committee), so:
-    - up to EXACT_MAX matching chunks: exact distances over them (≈ 80 ms per 20k);
-    - more: the index's TOP_N nearest overall, then the filter (a big committee keeps plenty).
-    """
+    """Nearest chunks by cosine distance: the HNSW index with the filter applied as it scans
+    (iterative scan). A selective filter matching at most EXACT_MAX chunks (a speaker, a few
+    sessions) compares with those chunks directly instead, where the index would discard
+    almost every neighbor it visits."""
     p = p | {"v": "[" + ",".join(f"{x:.5f}" for x in vec) + "]"}
     scope = f"""from text.chunks c join text.documents d using (doc_id)
                 where c.embedding is not null and {where}"""
+    path = "index"
     if selective:
-        (n,) = conn.execute(
-            f"select count(*) from (select 1 {scope} limit {EXACT_MAX + 1}) t", p
-        ).fetchone()
-        path = "exact" if n <= EXACT_MAX else "top_n"
-        if path == "exact":
-            sql = f"""with cand as materialized (select c.chunk_id, c.embedding {scope})
-                      select chunk_id from cand order by embedding <=> %(v)s::halfvec
-                      limit {CANDIDATES}"""
-        else:
-            conn.execute(f"set local hnsw.ef_search = {TOP_N}")
-            sql = f"""with top as materialized (
-                          select chunk_id, embedding <=> %(v)s::halfvec as dist
-                          from text.chunks where embedding is not null
-                          order by embedding <=> %(v)s::halfvec limit {TOP_N})
-                      select c.chunk_id from top join text.chunks c using (chunk_id)
-                      join text.documents d using (doc_id)
-                      where {where} order by top.dist limit {CANDIDATES}"""
+        count = f"select count(*) from (select 1 {scope} limit {EXACT_MAX + 1}) t"
+        if conn.execute(count, p).fetchone()[0] <= EXACT_MAX:
+            path = "exact"
+    if path == "exact":
+        sql = f"""with cand as materialized (select c.chunk_id, c.embedding {scope})
+                  select chunk_id from cand order by embedding <=> %(v)s::halfvec
+                  limit {CANDIDATES}"""
     else:
-        path = "index"
         conn.execute("set local hnsw.ef_search = 100")
         conn.execute("select set_config('hnsw.iterative_scan', 'relaxed_order', true)")
         sql = (

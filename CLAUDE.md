@@ -28,6 +28,7 @@ The full plan is in `PLAN.md`. Status per phase is in `PROGRESS.md`.
 - `make chunk` — chunk extracted documents and resolve speakers (native)
 - `make speakers` — re-resolve chunk speakers to `dim_person` in place (embeddings untouched)
 - `make embed ARGS="--limit 1000"` — bge-m3 embeddings on the local GPU (native, `embed` extra); `--index` builds HNSW
+- `make warm` — load the HNSW index into Postgres shared buffers (after building it; kept across restarts)
 - `uv run knesset samples [--per-type 3]` — sample documents per type + markup tag counts into `eval/samples/` (for reading)
 - `uv run knesset links` — enrichment tier 1 (chunks → session items, speakers → person/faction)
 - `uv run knesset structure` — protocol sections (agenda items, words per speaker) and attendance lists → `text.sections`, `text.section_speakers`, `text.participants`

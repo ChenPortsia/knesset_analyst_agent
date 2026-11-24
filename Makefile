@@ -2,7 +2,7 @@ COMPOSE := docker compose
 export HOST_UID := $(shell id -u)
 export HOST_GID := $(shell id -g)
 
-.PHONY: up down status migrate dbt registry extract chunk speakers links embed ner sync sync-full sync-deletes fixtures test lint fmt notebooks psql logs
+.PHONY: up down status migrate dbt registry extract chunk speakers links embed ner warm sync sync-full sync-deletes fixtures test lint fmt notebooks psql logs
 
 .env:
 	cp .env.example .env
@@ -73,6 +73,9 @@ fmt:
 
 notebooks:
 	uv run --extra embed jupytext --to ipynb --execute notebooks/[0-9]*.py
+
+warm:  # load the vector index into shared buffers (kept across restarts by pg_prewarm)
+	$(COMPOSE) exec -T db psql -U postgres -d knesset -c "create extension if not exists pg_prewarm" -c "select pg_prewarm('text.chunks_embedding_hnsw') as index_pages"
 
 psql:
 	$(COMPOSE) exec db psql -U postgres -d knesset

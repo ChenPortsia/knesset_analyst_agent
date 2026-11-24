@@ -17,6 +17,7 @@ create database phoenix owner phoenix;
 
 create extension if not exists vector;
 create extension if not exists pg_trgm;
+create extension if not exists pg_prewarm;  -- `make warm` loads the vector index into memory
 
 create schema raw authorization etl;
 create schema ops authorization etl;
