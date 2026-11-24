@@ -19,13 +19,13 @@ from knesset.config import settings
 from knesset.db import connect
 
 # $ per million tokens (input, output), standard API rates; the Batch API halves them.
-PRICES = {
-    "claude-haiku-5-5": (0.10, 0.50),
-    "claude-sonnet-5-5": (2.00, 10.00),
-    "claude-opus-5-5": (4.00, 20.00),
+PRICES = {  # $ per million tokens: input, output, cache read
+    "claude-haiku-5-5": (0.10, 0.50, 0.01),
+    "claude-sonnet-5-5": (2.00, 10.00, 0.10),
+    "claude-opus-5-5": (4.00, 20.00, 0.20),
 }
 BATCH_DISCOUNT = 0.5
-CACHE_READ, CACHE_WRITE = 0.1, 1.25  # × input price
+CACHE_WRITE = 1.25  # × input price (5-minute cache)
 SAMPLE = 20  # requests token-counted for a projection
 
 log = structlog.get_logger()
@@ -39,15 +39,15 @@ def client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=settings().anthropic_api_key or None)
 
 
-def usage_cost(model: str, usage: Any) -> float:
-    """Batch cost of one response's usage."""
-    pin, pout = PRICES[model]
+def usage_cost(model: str, usage: Any, batch: bool = True) -> float:
+    """Cost of one response's usage (Batch API prices unless batch=False)."""
+    pin, pout, pcache = PRICES[model]
     tokens_in = (
         usage.input_tokens * pin
-        + (getattr(usage, "cache_read_input_tokens", 0) or 0) * pin * CACHE_READ
+        + (getattr(usage, "cache_read_input_tokens", 0) or 0) * pcache
         + (getattr(usage, "cache_creation_input_tokens", 0) or 0) * pin * CACHE_WRITE
     )
-    return BATCH_DISCOUNT * (tokens_in + usage.output_tokens * pout) / 1e6
+    return (BATCH_DISCOUNT if batch else 1.0) * (tokens_in + usage.output_tokens * pout) / 1e6
 
 
 def spent(steps: list[str]) -> float:
@@ -71,7 +71,7 @@ def project(api: Any, model: str, requests: list[dict], output_tokens: int) -> f
         ).input_tokens
         for r in sample
     ]
-    pin, pout = PRICES[model]
+    pin, pout, _ = PRICES[model]
     return BATCH_DISCOUNT * len(requests) * (mean(counted) * pin + output_tokens * pout) / 1e6
 
 

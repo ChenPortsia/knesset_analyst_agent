@@ -244,6 +244,22 @@
 - A connection per search (≈ 15–20 ms): the agents in Phase 7 should share a connection pool.
 - `summarize` needs the agent's model (Phase 7).
 
+## Phase 7 — Multi-agent system 🟡 in progress
+
+**Built (tested offline with a fake Claude client; no paid run yet)**
+- `agents/contracts.py`: `AgentTask` → `AgentResult` (findings with evidence, artifacts, verdict, usage), pydantic, JSON — the A2A-ready contract.
+- `agents/llm.py`: one tool loop on the Anthropic SDK (`beta.messages.create`): tools and a strict JSON output schema in the same request, prompt caching (`cache_control`), server-side refusal fallbacks (`fallbacks: "default"`), at most 8 model calls per loop (the last without tools); cost per call at list prices; a per-question `Budget` (cost, agent turns, wall time) shared by all agents.
+- `agents/specialist.py`: analyst, researcher, summarizer, verifier = prompt + tools + model behind `run(task)`. A finding keeps only evidence its own tool calls returned in that task (invented ids are dropped and the claim becomes low confidence).
+- `agents/client.py`: `AgentClient` / `LocalClient` (A2A in Phase 8).
+- `agents/graph.py` (LangGraph): plan (Opus, may call `resolve_entity`; or asks the user to clarify) → delegate (independent tasks in parallel, dependent ones with their dependencies' findings as context; a `handoff.<agent>` span each) → draft (Opus, from findings only, numbered citations) → verify (verifier re-reads cited chunks and re-runs SQL) → on fail, plan again once, then answer with caveats → finish. Limits, refusals and unparsable answers end the run with what is known, said so.
+- `agents/prompts/*.md`: shared rules; orchestrator (Hebrew + English examples), draft, analyst (13 question → SQL pairs on the real marts columns), researcher, summarizer, verifier.
+- Tracing: a `question` root span per question, `handoff.*` and `agent.*` spans, and every Claude call via OpenInference (tokens, latency).
+- `knesset ask "…"`: streams plan, agent results and the verdict, then the answer, sources, cost, calls, steps, seconds and the Phoenix link.
+- Limits (`.env`): `AGENT_MAX_COST_USD` 0.50 per question, `AGENT_MAX_STEPS` 12 agent turns, `AGENT_TIMEOUT_S` 90.
+- Notebook `07_agents` (paid, capped at $5 in the notebook): each specialist alone, the verifier on one correct and two planted-error drafts, 10 mixed questions, traces in Phoenix.
+- Tests: 87 (8 new: strict schema, invented evidence, specialist alone, full graph, re-plan then caveats, clarification, cost and step limits, the CLI).
+- Fixed on the way: Claude Opus 5.5 / Sonnet 5.5 cache reads cost 5% of the input price (the topic-labeling cost code assumed 10%).
+
 ## Changes to the plan
 
 - 22 Nov 2026, the user: topic labeling paused; topics from markup and metadata, NER as the only model step (Phase 5 above).

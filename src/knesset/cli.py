@@ -267,6 +267,52 @@ def search(
 
 
 @app.command()
+def ask(
+    question: str,
+    knessets: str = typer.Option("", help="Filter, e.g. 25,26 (default: no filter)"),
+) -> None:
+    """Ask the agents a question (paid: Claude API; capped by AGENT_MAX_COST_USD per question).
+    Streams each agent step, then the answer with its sources, cost and trace link."""
+    from knesset import tracing
+    from knesset.agents.graph import ask as run_ask
+
+    if not settings().anthropic_api_key:
+        typer.echo("ERR  ANTHROPIC_API_KEY is not set in .env", err=True)
+        raise typer.Exit(2)
+    tracing.setup()
+    tracing.instrument_llm()
+    filters = {"knessets": parse_knessets(knessets)} if knessets else {}
+    for node, update in run_ask(question, filters=filters):
+        if node == "plan":
+            for t in update.get("plan", []):
+                deps = f" (after {', '.join(t['depends_on'])})" if t["depends_on"] else ""
+                typer.echo(f"plan   {t['id']} → {t['agent']}{deps}: {t['instruction']}")
+            if update.get("clarification") and not update.get("plan"):
+                typer.echo("plan   asks the user to clarify")
+        elif node == "delegate":
+            for r in update.get("results", []):
+                status = r["error"] or f"{len(r['findings'])} findings"
+                typer.echo(f"agent  {r['task_id']} {r['agent']}: {status} "
+                           f"(${r['usage']['cost_usd']:.3f})")  # fmt: skip
+        elif node == "verify":
+            v = update.get("verdict", {})
+            typer.echo(
+                f"verify {v.get('status')}"
+                + "".join(f"\n       - {i}" for i in v.get("issues", []))
+            )
+        elif node == "done":
+            typer.echo(f"\n{update['answer']}\n")
+            for s in update["sources"]:
+                typer.echo(f"[{s['n']}] {s['type']} {s['ref'][:120]} {s.get('url') or ''}")
+            u = update["usage"]
+            typer.echo(f"\n${u['cost_usd']:.3f} · {u['calls']} calls · {u['steps']} steps · "
+                       f"{u['seconds']} s · {tracing.trace_link(update['trace_id'])}")  # fmt: skip
+        if update.get("limit"):
+            typer.echo(f"limit  {update['limit']}")
+    tracing.flush()
+
+
+@app.command()
 def topics() -> None:
     """Load the topic taxonomy (src/knesset/enrich/topics.yaml) into text.topics."""
     from knesset.enrich.topics import load_topics

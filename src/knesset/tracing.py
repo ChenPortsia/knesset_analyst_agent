@@ -24,6 +24,15 @@ def setup(project: str = PROJECT) -> TracerProvider:
     )
 
 
+def instrument_llm() -> None:
+    """Trace every Claude call (tokens, latency) as a child span in Phoenix."""
+    from openinference.instrumentation.anthropic import AnthropicInstrumentor
+
+    instrumentor = AnthropicInstrumentor()
+    if not instrumentor.is_instrumented_by_opentelemetry:
+        instrumentor.instrument(tracer_provider=setup())
+
+
 def tracer(name: str = "knesset") -> trace.Tracer:
     return trace.get_tracer(name)
 

@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     enrich_model: str = "claude-haiku-5-5"
     topic_budget_usd: float = 10.0  # hard cap for all topic labeling (teacher + clusters)
 
+    # Agents (Phase 7, PLAN.md §7): models per agent, and per-question limits
+    agent_orchestrator_model: str = "claude-opus-5-5"
+    agent_summarizer_model: str = "claude-opus-5-5"
+    agent_analyst_model: str = "claude-sonnet-5-5"
+    agent_researcher_model: str = "claude-sonnet-5-5"
+    agent_verifier_model: str = "claude-sonnet-5-5"
+    agent_max_cost_usd: float = 0.5  # per question, all agents together
+    agent_max_steps: int = 12  # agent turns per question: an orchestrator step or a specialist task
+    agent_timeout_s: float = 90.0
+
     soffice: str = "soffice"  # LibreOffice binary (in the app image; on macOS the .app path)
     soffice_workers: int = 4
 
