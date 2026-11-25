@@ -1,0 +1,96 @@
+# The eval set (PLAN §7): the same questions for every model configuration (eval/configs.yaml).
+# sql: the answer must contain every value of the reference query's first row, computed from
+#      the database at run time (so no number is typed in by hand).
+# text: `expect` is a list of groups; a group counts when the answer contains any of its terms.
+- id: bills_passed
+  kind: sql
+  question: כמה הצעות חוק עברו בכנסת ה-25?
+  sql: select count(*) from marts.fct_bill where knesset_num = 25 and is_passed
+- id: private_bills_passed
+  kind: sql
+  question: How many private members' bills passed in the 25th Knesset?
+  sql: >-
+    select count(*) from marts.fct_bill
+    where knesset_num = 25 and is_passed and subtype_desc like 'פרטי%'
+- id: top_committee
+  kind: sql
+  question: איזו ועדה קיימה הכי הרבה ישיבות בכנסת ה-25, וכמה?
+  sql: >-
+    select committee_name, count(*) from marts.fct_committee_session
+    where knesset_num = 25 group by 1 order by 2 desc limit 1
+- id: constitution_sessions
+  kind: sql
+  question: How many sessions did the Constitution, Law and Justice Committee hold in the 25th Knesset?
+  sql: >-
+    select count(*) from marts.fct_committee_session
+    where knesset_num = 25 and committee_name = 'ועדת החוקה, חוק ומשפט'
+- id: top_ministry
+  kind: sql
+  question: איזה משרד ממשלתי קיבל הכי הרבה שאילתות בכנסת ה-25, וכמה?
+  sql: >-
+    select ministry_name, count(*) from marts.fct_query
+    where knesset_num = 25 group by 1 order by 2 desc limit 1
+- id: transport_queries
+  kind: sql
+  question: How many parliamentary queries were addressed to the Ministry of Transport in the 25th Knesset?
+  sql: >-
+    select count(*) from marts.fct_query
+    where knesset_num = 25 and ministry_name like 'משרד התחבורה%'
+- id: plenum_sessions
+  kind: sql
+  question: כמה ישיבות מליאה התקיימו בכנסת ה-25?
+  sql: select count(*) from marts.fct_plenum_session where knesset_num = 25
+- id: queries_total
+  kind: sql
+  question: How many parliamentary queries were submitted in the 25th Knesset?
+  sql: select count(*) from marts.fct_query where knesset_num = 25
+- id: haredi_draft
+  kind: text
+  question: מה נאמר בוועדת החוץ והביטחון על גיוס חרדים?
+  expect:
+    - [גוטליב, ביסמוט, בן ברק, אילוז]
+    - [סנקצי, יעד, פטור]
+- id: cost_of_living_speakers
+  kind: text
+  question: Which MKs spoke most about the cost of living (יוקר המחיה)?
+  expect:
+    - [ביטן, Bitan]
+    - [בליאק, Beliak, Belyak]
+- id: construction_waste
+  kind: text
+  question: What were the main arguments in the debate on construction waste (פסולת בניין)?
+  expect:
+    - [קרויזר, Kroizer, Kroyzer, אלקין, Elkin, סילמן, Silman]
+    - [אכיפה, enforcement]
+    - [השלטון המקומי, רשויות, local authorit]
+- id: hostages_plenum
+  kind: text
+  question: מה אמרו חברי הכנסת על החטופים בעזה במליאה?
+  expect:
+    - [עסקה]
+    - [מירב כהן, כסיף, איזנקוט, מיכאלי, עבאס, גמליאל, נתניהו]
+- id: labor_organizations
+  kind: text
+  question: אילו ארגונים הופיעו הכי הרבה בוועדת העבודה והרווחה?
+  expect:
+    - [ביטוח לאומי]
+    - [הסתדרות]
+- id: budget_faction_vote
+  kind: text
+  question: How did the factions vote on the 2025 state budget law?
+  expect:
+    - ["66"]
+    - ["52"]
+    - [Likud, הליכוד]
+    - [Yesh Atid, יש עתיד]
+- id: finance_budget_share
+  kind: text
+  question: כמה מזמן הדיונים של ועדת הכספים הוקדש לחוק התקציב לשנת 2025?
+  expect:
+    - ["%"]
+    - [מילים, words, ישיבות, sessions]
+- id: economy_cost_of_living
+  kind: text
+  question: What did MKs say about the cost of living in the Economic Affairs Committee in Knesset 25?
+  expect:
+    - [כסיף, Cassif, טל מירון, Tal Miron, חוג'יראת, Hujirat, ביטן, Bitan]

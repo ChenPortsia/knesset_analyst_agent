@@ -30,6 +30,8 @@ dependencies = [
 [project.optional-dependencies]
 # Embedding runs natively where the GPU is: uv run --extra embed knesset embed
 embed = ["sentence-transformers", "torch"]
+# Model matrix with OpenAI models: uv run --extra embed --extra openai knesset eval
+openai = ["langchain-openai"]
 
 [project.scripts]
 knesset = "knesset.cli:app"

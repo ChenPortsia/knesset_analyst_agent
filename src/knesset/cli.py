@@ -340,6 +340,44 @@ def show(node: str, update: dict) -> None:
         typer.echo(f"limit  {update['limit']}")
 
 
+@app.command("eval")
+def evaluate(
+    configs: str = typer.Option("baseline", help="Comma-separated names from eval/configs.yaml"),
+    max_usd: float = typer.Option(5.0, help="Stop before a question whose worst case passes it"),
+    ids: str = typer.Option("", help="Only these question ids (comma-separated)"),
+) -> None:
+    """Paid: the eval set under each model configuration, graded in code (eval/)."""
+    from datetime import datetime
+
+    from knesset import evals, tracing
+    from knesset import log as logs
+
+    logs.configure(quiet=True)
+    tracing.setup()
+    tracing.instrument_llm()
+    names = [c.strip() for c in configs.split(",") if c.strip()]
+    unknown = set(names) - set(evals.load(evals.CONFIGS))
+    if unknown:
+        typer.echo(f"ERR  unknown configs: {', '.join(sorted(unknown))}", err=True)
+        raise typer.Exit(2)
+    results = []
+    out = settings().log_dir / "eval" / f"{datetime.now():%Y-%m-%d_%H%M}.jsonl"
+    for r in evals.run(names, max_usd, [i for i in ids.split(",") if i] or None, out=out):
+        results.append(r)
+        if "skipped" in r:
+            typer.echo(f"skip   {r['config']:<18} {r['id']} ({r['skipped']})")
+            continue
+        missed = f" missed {', '.join(r['missed'])}" if r["missed"] else ""
+        typer.echo(f"{r['score']:.2f}   {r['config']:<18} {r['id']:<24} ${r['cost_usd']:.3f} "
+                   f"{r['seconds']:>5} s{missed}")  # fmt: skip
+    report = evals.markdown(results)
+    out.with_suffix(".md").write_text(report, encoding="utf-8")
+    typer.echo(
+        "\n" + report.split("\n\n")[0] + f"\n\nanswers: {out}\nreport: {out.with_suffix('.md')}"
+    )
+    tracing.flush()
+
+
 @app.command()
 def traces(n: int = typer.Option(10, help="How many recent questions")) -> None:
     """Recent agent questions from Phoenix: path, verdict, cost, steps and the answer."""

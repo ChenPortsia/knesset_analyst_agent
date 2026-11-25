@@ -23,6 +23,7 @@ PRICES = {  # $ per million tokens: input, output, cache read
     "claude-haiku-5-5": (0.10, 0.50, 0.01),
     "claude-sonnet-5-5": (2.00, 10.00, 0.10),
     "claude-opus-5-5": (4.00, 20.00, 0.20),
+    "gpt-6-luna": (0.10, 0.50, 0.01),  # OpenAI list price, Nov 2026 (agents only)
 }
 BATCH_DISCOUNT = 0.5
 CACHE_WRITE = 1.25  # × input price (5-minute cache)

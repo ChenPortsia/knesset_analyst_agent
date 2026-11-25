@@ -311,6 +311,13 @@
   - One revision left an editing note in the text: the revise prompt now asks for clean final text.
 - Tests: 101.
 
+**Eval set and model matrix (25 Nov 2026, the user's choice)**
+- `eval/questions.yaml`: 16 questions, 8 SQL and 8 text, in Hebrew and English. A SQL question is right when the answer has every value of its reference query's first row, computed from the database at run time (no number typed in by hand). A text question scores the share of expected term groups it contains: speakers, organizations, key terms taken from the answers read in earlier runs.
+- `eval/configs.yaml`: baseline (.env), haiku-specialists, all-haiku, luna-specialists (OpenAI `gpt-6-luna` through `ChatOpenAI`; `openai` extra, `OPENAI_API_KEY`). Any agent's model can be replaced by name.
+- `knesset eval --configs … --max-usd 5`: runs every question under each configuration, never starting a question whose worst case passes the cap. It prints one line per answer and a summary per configuration (SQL right, text score, cited, $ total and per question, s per question). Answers go to `logs/eval/<time>.jsonl` and the report to `.md`.
+- GPT-6 Luna list price $0.10 / $0.50 / $0.01 cached per million tokens, from price aggregators; OpenAI's own page could not be confirmed.
+- Tests: 106.
+
 ## Changes to the plan
 
 - 24 Nov 2026, the user: the per-question agent timeout is 150 s (PLAN §7 said 90 s): text questions finished at 91–98 s in the first notebook-07 run.

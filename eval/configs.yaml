@@ -1,0 +1,16 @@
+# Model configurations for `knesset eval`: agent → model; agents not listed keep the .env model.
+baseline: {}
+haiku-specialists:
+  analyst: claude-haiku-5-5
+  researcher: claude-haiku-5-5
+  summarizer: claude-haiku-5-5
+all-haiku:
+  orchestrator: claude-haiku-5-5
+  analyst: claude-haiku-5-5
+  researcher: claude-haiku-5-5
+  summarizer: claude-haiku-5-5
+  verifier: claude-haiku-5-5
+luna-specialists:  # OpenAI; needs OPENAI_API_KEY in .env and the `openai` extra
+  analyst: gpt-6-luna
+  researcher: gpt-6-luna
+  summarizer: gpt-6-luna

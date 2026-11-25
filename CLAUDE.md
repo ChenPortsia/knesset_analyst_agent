@@ -36,6 +36,7 @@ The full plan is in `PLAN.md`. Status per phase is in `PROGRESS.md`.
 - `uv run --extra embed knesset search "…" [--k 5] [--keywords-only]` — hybrid search with timings (debug)
 - `uv run --extra embed knesset ask "…" [--thread <id>]` — paid: ask the agents (LangGraph; streams steps, asks back if unclear, `--thread` continues a conversation; capped by `AGENT_MAX_COST_USD` per question); notebook 07 is capped at $5
 - `uv run --extra embed --with "langgraph-cli[inmem]" langgraph dev` — the graph in LangGraph Studio (`langgraph.json`)
+- `uv run --extra embed knesset eval --configs baseline,haiku-specialists [--max-usd 5] [--ids …]` — paid: the eval set (`eval/questions.yaml`) under model configurations (`eval/configs.yaml`), graded in code; answers + Markdown report in `logs/eval/`; OpenAI models need `--extra openai` and `OPENAI_API_KEY`
 - `uv run knesset traces [--n 10]` — recent agent questions from Phoenix: path, verdict, cost, steps, answer
 - `uv run knesset topics` — load `src/knesset/enrich/topics.yaml` into `text.topics`
 - `uv run knesset label` — hand-label the gold set (`eval/labeled_chunks.jsonl`)

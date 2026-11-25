@@ -28,12 +28,19 @@ def model_name(agent: str) -> str:
     return getattr(settings(), f"agent_{agent}_model")
 
 
-def chat_model(agent: str, effort: str = "medium") -> BaseChatModel:
-    """The agent's Claude model from .env, with its effort and, where the model has it, the
-    server-side refusal fallback."""
+def chat_model(agent: str, effort: str = "medium", name: str | None = None) -> BaseChatModel:
+    """The agent's model (`name`, else .env) with its effort: Claude with the server-side
+    refusal fallback where the model has it, or an OpenAI model (`gpt-…`)."""
+    name = name or model_name(agent)
+    if name.startswith("gpt-"):
+        from langchain_openai import ChatOpenAI  # the `openai` extra
+
+        key = settings().openai_api_key or None
+        return ChatOpenAI(
+            model=name, api_key=key, max_tokens=MAX_TOKENS, reasoning_effort=effort, max_retries=2
+        )
     from langchain_anthropic import ChatAnthropic
 
-    name = model_name(agent)
     extra: dict[str, Any] = {}
     if name in FALLBACK_MODELS:
         extra = {"betas": [FALLBACK_BETA], "model_kwargs": {"fallbacks": "default"}}
@@ -47,6 +54,17 @@ def chat_model(agent: str, effort: str = "medium") -> BaseChatModel:
     )
 
 
+def factory(names: dict[str, str]) -> ModelFactory:
+    """A model factory with some agents' models replaced (agent → model name)."""
+    return lambda agent, effort="medium": chat_model(agent, effort, names.get(agent))
+
+
+def price(model: str) -> tuple[float, float, float]:
+    """List prices by model name; providers may add a date suffix (gpt-6-luna-2026-09-22)."""
+    key = next((k for k in PRICES if model.startswith(k)), "claude-sonnet-5-5")
+    return PRICES[key]
+
+
 def usage_of(message: Any, fallback_model: str = "") -> Usage:
     """Tokens and list-price cost of one model response (LangChain usage metadata)."""
     meta = getattr(message, "usage_metadata", None) or {}
@@ -54,7 +72,7 @@ def usage_of(message: Any, fallback_model: str = "") -> Usage:
     read, write = details.get("cache_read") or 0, details.get("cache_creation") or 0
     total_in, out = meta.get("input_tokens") or 0, meta.get("output_tokens") or 0
     model = (getattr(message, "response_metadata", None) or {}).get("model_name") or fallback_model
-    pin, pout, pcache = PRICES.get(model, PRICES["claude-sonnet-5-5"])
+    pin, pout, pcache = price(model)
     cost = ((total_in - read - write) * pin + read * pcache + write * pin * CACHE_WRITE
             + out * pout) / 1e6  # fmt: skip
     return Usage(calls=1, tokens_in=total_in, tokens_out=out, cost_usd=cost)
