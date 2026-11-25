@@ -7,6 +7,7 @@ the answer contains. Every answer is written to a JSONL file as it arrives; a su
 configuration is printed and saved as Markdown next to it."""
 
 import json
+import uuid
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
@@ -47,12 +48,20 @@ def grade(q: dict, answer: str, sources: list[dict], expected: list[str] | None 
     return {"score": sum(groups) / len(groups), "missed": missed, "cited": cited}
 
 
-def answer_one(question: str, user_id: str, models: Callable[[], ModelFactory]) -> dict:
-    """The graph's result, or an empty one with the error: one broken question must not stop
-    a paid run (its cost is then not known here; Phoenix has it)."""
+def answer_one(
+    question: str, user_id: str, models: Callable[[], ModelFactory], before: list[str] = ()
+) -> dict:
+    """The graph's result (after the `before` questions, asked first in the same thread), or
+    an empty one with the error: one broken question must not stop a paid run (its cost is
+    then not known here; Phoenix has it)."""
+    thread = uuid.uuid4().hex
     try:
-        *_, (_, result) = ask(question, user_id=user_id, models=models(),
-                              filters={"knessets": [25, 26]})  # fmt: skip
+        cost = 0.0
+        for q in [*before, question]:
+            *_, (_, result) = ask(q, user_id=user_id, thread_id=thread, models=models(),
+                                  filters={"knessets": [25, 26]})  # fmt: skip
+            cost += result["usage"]["cost_usd"]
+        result["usage"]["cost_usd"] = cost
         return result
     except Exception as e:
         usage = {"cost_usd": 0.0, "calls": 0, "steps": 0, "seconds": 0}
@@ -98,7 +107,12 @@ def run(
             if spent + s.agent_max_cost_usd > max_usd:
                 yield {"config": name, "id": q["id"], "skipped": f"${spent:.2f} spent"}
                 continue
-            result = answer_one(q["question"], f"eval-{name}", lambda names=names: models(names))
+            result = answer_one(
+                q["question"],
+                f"eval-{name}",
+                lambda names=names: models(names),
+                q.get("before", []),
+            )
             u = result["usage"]
             spent += u["cost_usd"]
             answer = result["answer"] or ""

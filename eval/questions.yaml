@@ -95,3 +95,76 @@
   question: What did MKs say about the cost of living in the Economic Affairs Committee in Knesset 25?
   expect:
     - [כסיף, Cassif, טל מירון, Tal Miron, חוג'יראת, Hujirat, ביטן, Bitan]
+
+# ---- harder (added 25 Nov 2026): comparisons, multi-step SQL, follow-ups in one thread
+# (`before`: asked first in the same conversation), cross-source and an unanswerable question
+- id: bills_passed_24_vs_25
+  kind: sql
+  question: How did the number of bills passed change between the 24th and the 25th Knesset?
+  sql: >-
+    select count(*) filter (where knesset_num = 24), count(*) filter (where knesset_num = 25)
+    from marts.fct_bill where is_passed
+- id: top_private_initiator
+  kind: sql
+  question: איזה חבר כנסת יזם הכי הרבה הצעות חוק פרטיות שעברו בכנסת ה-25, וכמה?
+  sql: >-
+    select p.last_name, count(*) from marts.fct_bill b
+    cross join unnest(b.initiator_ids) as i(person_id)
+    join marts.dim_person p using (person_id)
+    where b.knesset_num = 25 and b.is_passed and b.subtype_desc like 'פרטי%'
+    group by p.person_id, 1 order by 2 desc limit 1
+- id: follow_up_initiator
+  kind: sql
+  before: ["כמה הצעות חוק פרטיות עברו בכנסת ה-25?"]
+  question: ומי מבין חברי הכנסת יזם הכי הרבה מהן, וכמה?
+  sql: >-
+    select p.last_name, count(*) from marts.fct_bill b
+    cross join unnest(b.initiator_ids) as i(person_id)
+    join marts.dim_person p using (person_id)
+    where b.knesset_num = 25 and b.is_passed and b.subtype_desc like 'פרטי%'
+    group by p.person_id, 1 order by 2 desc limit 1
+- id: finance_busiest_month_2025
+  kind: sql
+  question: In which month of 2025 did the Finance Committee hold the most sessions, and how many?
+  sql: >-
+    select count(*) from marts.fct_committee_session
+    where committee_name = 'ועדת הכספים' and start_date >= '2025-01-01' and start_date < '2026-01-01'
+    group by date_trunc('month', start_date) order by 1 desc limit 1
+- id: health_vs_education_sessions
+  kind: sql
+  question: האם ועדת הבריאות או ועדת החינוך קיימה יותר ישיבות בכנסת ה-25? כמה כל אחת?
+  sql: >-
+    select count(*) filter (where committee_name = 'ועדת הבריאות'),
+           count(*) filter (where committee_name = 'ועדת החינוך התרבות והספורט')
+    from marts.fct_committee_session where knesset_num = 25
+- id: finance_chair
+  kind: text
+  question: Who chaired the Finance Committee in the 25th Knesset, and what did they say about the 2025 budget?
+  expect:
+    - [גפני, Gafni]
+    - [תקציב, budget]
+- id: judicial_reform_constitution
+  kind: text
+  question: מה היו עמדות הקואליציה והאופוזיציה בוועדת החוקה על הרפורמה המשפטית?
+  expect:
+    - [רוטמן, Rothman]
+    - [קריב, Kariv, אלהרר, Elharrar, לפיד, Lapid, טרופר, Tropper, ליברמן, Liberman]
+    - [סבירות, הוועדה לבחירת שופטים, reasonableness, judicial selection]
+- id: smotrich_finance_2025
+  kind: text
+  question: What did Finance Minister Smotrich say in the Finance Committee in 2025?
+  expect:
+    - [סמוטריץ', Smotrich]
+    - ["2025"]
+- id: follow_up_draft_plenum
+  kind: text
+  before: ["מה נאמר בוועדת החוץ והביטחון על גיוס חרדים?"]
+  question: ומה אמרו על כך במליאה?
+  expect:
+    - [מליאה, plenum]
+    - [גיוס, draft, conscription]
+- id: unanswerable
+  kind: text
+  question: מה החליטה הכנסת ה-25 על תוכנית ההתיישבות במאדים?
+  expect:  # an honest "not found", not an invented answer
+    - [לא נמצא, לא מצאתי, אין מידע, אין התייחסות, לא נמצאו, no information, not find, did not find, no record]

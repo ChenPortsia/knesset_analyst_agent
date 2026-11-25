@@ -349,7 +349,9 @@
   | luna-specialists | 8/8 | 0.81 | 15/16 | 0.033 | 51 |
 
   Luna's SQL questions now all pass. Its labor-organizations answer is still from the first run (the researcher hit the old recursion limit inside the task; that is not a run error, so `--resume` kept it).
-- Tests: 109.
+- Decision (user, 25 Nov 2026): Haiku 5.5 for the analyst, researcher and summarizer; Sonnet 5.5 stays the orchestrator, Haiku the verifier (`config.py` defaults and `.env.example`; `sonnet-specialists` in the matrix keeps the earlier models for comparison).
+- 10 harder questions (26 in all): a comparison across Knessets, multi-step SQL (top private-bill initiator, busiest month), two follow-ups asked in the same thread (`before`), cross-source text questions (Finance chair and the 2025 budget, coalition vs opposition on the judicial reform, Smotrich in 2025) and an unanswerable one (graded on an honest "not found").
+- Tests: 111.
 
 ## Changes to the plan
 

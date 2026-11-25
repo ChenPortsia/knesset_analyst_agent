@@ -29,9 +29,9 @@ def test_grade_text_counts_matched_groups():
 def test_factory_replaces_only_named_agents(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     settings.cache_clear()
-    models = factory({"analyst": "claude-haiku-5-5"})
-    assert models("analyst").model == "claude-haiku-5-5"
-    assert models("researcher").model == "claude-sonnet-5-5"  # from .env defaults
+    models = factory({"analyst": "claude-sonnet-5-5"})
+    assert models("analyst").model == "claude-sonnet-5-5"
+    assert models("researcher").model == "claude-haiku-5-5"  # the default
     assert price("gpt-6-luna-2026-09-22") == (0.10, 0.50, 0.01)
 
 
@@ -95,3 +95,29 @@ def test_eval_goes_on_after_an_error_and_resumes(data, tmp_path, monkeypatch):  
     again = list(evals.run(["baseline", "bad"], 5.0, models=models, out=out))
     assert again[0] == rows[0] and len(calls) == 3  # resumed: only the failed one ran again
     assert again[1]["score"] == 1.0 and not again[1]["error"]
+
+
+def test_eval_set_is_well_formed():
+    questions = evals.load(evals.QUESTIONS)
+    assert len({q["id"] for q in questions}) == len(questions) == 26
+    for q in questions:
+        assert q["kind"] in ("sql", "text") and q["question"]
+        assert q.get("sql") if q["kind"] == "sql" else q.get("expect"), q["id"]
+    assert set(evals.load(evals.CONFIGS)) >= {"baseline", "sonnet-specialists", "all-haiku"}
+
+
+def test_follow_up_is_asked_in_the_same_thread(data, monkeypatch):  # noqa: F811
+    asked = []
+    real = evals.ask
+
+    def ask(question, **kw):
+        asked.append((question, kw["thread_id"]))
+        yield from real(question, **kw)
+
+    monkeypatch.setattr(evals, "ask", ask)
+    script = Script()
+    result = evals.answer_one("ומי מהם?", "u", lambda: script.models, ["כמה אנשים?"])
+    assert [q for q, _ in asked] == ["כמה אנשים?", "ומי מהם?"] and len({t for _, t in asked}) == 1
+    assert result["usage"]["cost_usd"] == pytest.approx(2 * 9 * 3000 / 1e6)  # both questions
+    plans = [p for a, p in script.prompts if a == "planner"]
+    assert "Earlier in this conversation" in plans[-1]
