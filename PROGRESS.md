@@ -339,6 +339,16 @@
   - The specialist recursion limit is 10 × the model-call cap (the cap is the real limit).
   - `--resume` re-runs answers that failed with an error and re-grades the kept ones with the current `expect`.
   - Term lists accept the Hebrew name with the article and the English name ("הביטוח הלאומי", "National Insurance", "municipal", "dumping").
+- **After the fixes (re-run of the 10 failed answers, ≈ $0.17; matrix total ≈ $3.40)**:
+
+  | config | SQL right | text score | cited | $ / question | s / question |
+  |---|---|---|---|---|---|
+  | baseline | 8/8 | 1.00 | 16/16 | 0.124 | 55 |
+  | haiku-specialists | 8/8 | 0.96 | 15/16 | 0.042 | 45 |
+  | all-haiku | 8/8 | 0.94 | 16/16 | 0.013 | 57 |
+  | luna-specialists | 8/8 | 0.81 | 15/16 | 0.033 | 51 |
+
+  Luna's SQL questions now all pass. Its labor-organizations answer is still from the first run (the researcher hit the old recursion limit inside the task; that is not a run error, so `--resume` kept it).
 - Tests: 109.
 
 ## Changes to the plan
