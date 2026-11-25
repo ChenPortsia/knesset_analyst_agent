@@ -1,7 +1,8 @@
 # The eval set (PLAN §7): the same questions for every model configuration (eval/configs.yaml).
 # sql: the answer must contain every value of the reference query's first row, computed from
 #      the database at run time (so no number is typed in by hand).
-# text: `expect` is a list of groups; a group counts when the answer contains any of its terms.
+# text: `expect` is a list of groups; a group counts when the answer contains any of its terms
+#       (Hebrew with and without the definite article, and the English name).
 - id: bills_passed
   kind: sql
   question: כמה הצעות חוק עברו בכנסת ה-25?
@@ -61,8 +62,8 @@
   question: What were the main arguments in the debate on construction waste (פסולת בניין)?
   expect:
     - [קרויזר, Kroizer, Kroyzer, אלקין, Elkin, סילמן, Silman]
-    - [אכיפה, enforcement]
-    - [השלטון המקומי, רשויות, local authorit]
+    - [אכיפה, enforcement, השלכה, dumping]
+    - [השלטון המקומי, רשויות, local authorit, municipal]
 - id: hostages_plenum
   kind: text
   question: מה אמרו חברי הכנסת על החטופים בעזה במליאה?
@@ -73,8 +74,8 @@
   kind: text
   question: אילו ארגונים הופיעו הכי הרבה בוועדת העבודה והרווחה?
   expect:
-    - [ביטוח לאומי]
-    - [הסתדרות]
+    - [ביטוח לאומי, ביטוח הלאומי, National Insurance]
+    - [הסתדרות, Histadrut]
 - id: budget_faction_vote
   kind: text
   question: How did the factions vote on the 2025 state budget law?

@@ -93,4 +93,5 @@ def test_eval_goes_on_after_an_error_and_resumes(data, tmp_path, monkeypatch):  
     rows = list(evals.run(["baseline", "bad"], 5.0, models=models, out=out))
     assert [r["score"] for r in rows] == [1.0, 0.0] and "broken model" in rows[1]["error"]
     again = list(evals.run(["baseline", "bad"], 5.0, models=models, out=out))
-    assert again == rows and len(calls) == 2  # resumed: nothing re-run
+    assert again[0] == rows[0] and len(calls) == 3  # resumed: only the failed one ran again
+    assert again[1]["score"] == 1.0 and not again[1]["error"]

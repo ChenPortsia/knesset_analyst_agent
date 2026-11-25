@@ -162,11 +162,23 @@ def test_make_chart():
         "columns": ["year", "n", "party"],
         "rows": [[2024, 3, "א"], [2025, 5, "א"], [2025, 2, "ב"]],
     }
-    chart = json_ok(make_chart(data, {"kind": "line", "x": "year", "y": "n", "series": "party"}))
+    chart = json_ok(make_chart(**data, kind="line", x="year", y="n", series="party"))
     assert [t["name"] for t in chart["chart"]["data"]] == ["א", "ב"]
     assert chart["chart"]["data"][0]["y"] == [3, 5]
     with pytest.raises(ValueError, match="no column"):
-        make_chart(data, {"kind": "bar", "x": "month", "y": "n"})
+        make_chart(**data, kind="bar", x="month", y="n")
+
+
+def test_tool_schemas_have_no_open_objects():
+    """OpenAI rejects a required free-form object argument (make_chart had two)."""
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+
+    from knesset.tools.lc import AGENT_TOOLS, as_tool
+
+    for fn in {f for tools in AGENT_TOOLS.values() for f in tools}:
+        props = convert_to_openai_tool(as_tool(fn))["function"]["parameters"]["properties"]
+        for name, p in props.items():
+            assert p.get("additionalProperties") is not True, f"{fn.__name__}.{name}"
 
 
 def test_verdict():

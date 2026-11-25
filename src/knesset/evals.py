@@ -78,8 +78,16 @@ def run(
     expected = {q["id"]: truth(q["sql"]) for q in questions if q["kind"] == "sql"}
     out = out or s.log_dir / "eval" / f"{datetime.now():%Y-%m-%d_%H%M}.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
-    done = {(r["config"], r["id"]): r for r in map(json.loads, out.read_text().splitlines())
-            if "score" in r} if out.exists() else {}  # fmt: skip
+    # resume: keep answers already there (graded again, so a fixed `expect` counts) and re-run
+    # the ones that failed with an error
+    by_id = {q["id"]: q for q in questions}
+    done = {}
+    for r in map(json.loads, out.read_text().splitlines() if out.exists() else []):
+        if "score" in r and not r.get("error") and r["id"] in by_id:
+            q = by_id[r["id"]]
+            done[r["config"], r["id"]] = r | grade(
+                q, r["answer"], r["sources"], expected.get(q["id"])
+            )
     spent = sum(r["cost_usd"] for r in done.values())
     for name in configs:
         names = matrix[name] or {}

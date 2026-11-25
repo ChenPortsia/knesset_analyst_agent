@@ -320,7 +320,26 @@
   - A broken final JSON is treated like running out of calls: the agent keeps its tool results and gets one last call without tools (specialists and planner).
   - In the eval, one failing question is recorded with its error and the run goes on.
   - `--resume <jsonl>` adds to an earlier run and skips the answers already there; their cost counts toward the cap.
-- Tests: 108.
+- **The full matrix (Mac, $3.23 for 64 answers)**, re-graded with the corrected term lists:
+
+  | config | SQL right | text score | cited | $ total | $ / question | s / question |
+  |---|---|---|---|---|---|---|
+  | baseline | 8/8 | 1.00 | 16/16 | 1.99 | 0.124 | 55 |
+  | haiku-specialists | 8/8 | 0.96 | 15/16 | 0.67 | 0.042 | 45 |
+  | all-haiku | 7/8 (1 connection error) | 0.94 | 15/16 | 0.20 | 0.013 | 56 |
+  | luna-specialists | 0/8 (all errors) | 0.69 | 6/16 | 0.36 | 0.023 | 38 |
+
+  - Luna's analyst never ran: OpenAI rejects `make_chart`'s free-form object arguments, so every question the analyst touched failed on the first call. Its text answers (researcher, summarizer) were shorter (150 words vs 210–240) with fewer sources (5 vs 7–9); one hit the subgraph's recursion limit.
+  - Haiku answers read well. The misses: on the labor-committee organizations question all-haiku counted NER mentions and left out government bodies, where the baseline used the attendance lists (`text.participants`), the better source. haiku-specialists answered construction waste in English without naming the committee chair.
+  - Most text answers in every configuration were revised after the check (baseline 6/8, Haiku 7/8).
+  - Agent tool errors seen in the logs: wrong column names (`sub_type_desc`, `knesset_num` on `fct_vote`, `publish_date`), `items` filters given as `["bill", id]`, an unknown filter `dates`. The agents recovered from each.
+- Fixes after the run:
+  - `make_chart` takes typed arguments (columns, rows, kind, x, y, series, title); a test checks that no tool has an open object argument.
+  - `items` filters that are not integer pairs get a clear error with an example.
+  - The specialist recursion limit is 10 × the model-call cap (the cap is the real limit).
+  - `--resume` re-runs answers that failed with an error and re-grades the kept ones with the current `expect`.
+  - Term lists accept the Hebrew name with the article and the English name ("הביטוח הלאומי", "National Insurance", "municipal", "dumping").
+- Tests: 109.
 
 ## Changes to the plan
 

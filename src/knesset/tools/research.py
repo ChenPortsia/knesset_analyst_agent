@@ -41,7 +41,11 @@ def to_filters(filters: dict[str, Any] | None) -> Filters:
     if unknown:
         raise ValueError(f"unknown filters {sorted(unknown)}; allowed: {sorted(FILTER_KEYS)}")
     if filters.get("items"):
-        filters["items"] = [tuple(x) for x in filters["items"]]
+        items = filters["items"]
+        if not all(len(x) == 2 and all(isinstance(v, int) for v in x) for x in items):
+            raise ValueError("items are [item_type_id, item_id] pairs of integers, e.g. "
+                             "[[2, 2224903]] for a bill (item_type_id 2)")  # fmt: skip
+        filters["items"] = [tuple(x) for x in items]
     return Filters(**filters)
 
 

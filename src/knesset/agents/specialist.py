@@ -148,7 +148,7 @@ def run(task: AgentTask, budget: Budget, models: ModelFactory = chat_model) -> A
         try:
             budget.step(f"{agent} {task.task_id}")
             model = models(agent, EFFORT[agent])
-            config = {"callbacks": [BudgetCallback(budget)], "recursion_limit": 4 * MAX_CALLS}
+            config = {"callbacks": [BudgetCallback(budget)], "recursion_limit": 10 * MAX_CALLS}
             messages, answer = run_agent(subgraph(agent, model), text, config)
             if answer is None:  # out of model calls, or a broken final JSON
                 schema = Verdict if agent == "verifier" else Answer

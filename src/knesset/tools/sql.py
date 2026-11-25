@@ -71,20 +71,27 @@ def sql_query(sql: str) -> dict:
 
 
 @tool
-def make_chart(data: dict[str, Any], spec: dict[str, Any]) -> dict:
-    """A Plotly figure spec for the UI from a sql_query result (`columns`, `rows`) and a spec:
-    kind (bar, line, pie, scatter), x, y (column names), optional series (column), title."""
-    kind, x, y = spec.get("kind"), spec.get("x"), spec.get("y")
+def make_chart(
+    columns: list[str],
+    rows: list[list[str | float | None]],
+    kind: str,
+    x: str,
+    y: str,
+    series: str | None = None,
+    title: str = "",
+) -> dict:
+    """A Plotly figure spec for the UI from a sql_query result (its `columns` and `rows`):
+    kind (bar, line, pie, scatter), x and y (column names), optional series (a column), title.
+    Typed arguments, not free-form objects: OpenAI models reject open object schemas."""
     if kind not in CHART_KINDS:
         raise ValueError(f"kind must be one of {sorted(CHART_KINDS)}")
-    cols = data["columns"]
-    for name in filter(None, (x, y, spec.get("series"))):
-        if name not in cols:
-            raise ValueError(f"no column {name!r}; columns: {cols}")
-    records = [dict(zip(cols, r, strict=True)) for r in data["rows"]]
+    for name in filter(None, (x, y, series)):
+        if name not in columns:
+            raise ValueError(f"no column {name!r}; columns: {columns}")
+    records = [dict(zip(columns, r, strict=True)) for r in rows]
     groups: dict[Any, list[dict]] = {}
     for r in records:
-        groups.setdefault(r[spec["series"]] if spec.get("series") else y, []).append(r)
+        groups.setdefault(r[series] if series else y, []).append(r)
     traces = []
     for name, rs in groups.items():
         if kind == "pie":
@@ -97,6 +104,6 @@ def make_chart(data: dict[str, Any], spec: dict[str, Any]) -> dict:
             if kind != "bar":
                 trace["mode"] = "lines+markers" if kind == "line" else "markers"
             traces.append(trace)
-    layout = {"title": {"text": spec.get("title", "")}, "xaxis": {"title": {"text": x}},
+    layout = {"title": {"text": title}, "xaxis": {"title": {"text": x}},
               "yaxis": {"title": {"text": y}}}  # fmt: skip
     return {"chart": {"data": traces, "layout": layout}, "evidence": []}
