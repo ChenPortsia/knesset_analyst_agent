@@ -38,7 +38,7 @@ from knesset.agents.client import client_for
 from knesset.agents.contracts import AgentResult, AgentTask, Finding
 from knesset.agents.llm import Budget, LimitReached
 from knesset.agents.models import BudgetCallback, ModelFactory, chat_model
-from knesset.agents.specialist import prompt
+from knesset.agents.specialist import last_call, prompt
 from knesset.config import settings
 from knesset.tools.common import resolve_entity
 from knesset.tools.lc import as_tool
@@ -264,6 +264,11 @@ def plan(state: State, runtime: Runtime[Context]) -> State:
     )
     out = planner.invoke({"messages": [HumanMessage(text)]}, ctx.config)
     result: Plan | None = out.get("structured_response")
+    if result is None:  # out of model calls: plan from what resolve_entity returned
+        model = ctx.models("orchestrator", "medium")
+        result = last_call(model, Plan, prompt("orchestrator"), out["messages"], ctx.config)[
+            "parsed"
+        ]
     if result is None:
         raise RuntimeError("the planner gave no plan")
     remember(runtime.store, user, out["messages"])
@@ -392,7 +397,8 @@ def revise(state: State, runtime: Runtime[Context]) -> State:
         f"{findings_text(state['results'], sources)}\n\nSources:\n{sources_text(sources)}"
         f"\n\nYour draft:\n{state['draft']['answer']}\n\nThe verifier found these issues:\n"
         f"{issues}\n\nRewrite the answer: remove or correct each flagged claim, or state it "
-        "as uncertain. Add no new fact. Say in caveats what you removed."
+        "as uncertain. Add no new fact. Write it as clean final text: no wrong values left in, "
+        "no editing notes. Say in caveats what you removed."
     )
     result: Draft = structured(ctx, Draft, prompt("draft"), text)
     return {"draft": result.model_dump(), "revised": True}
@@ -413,6 +419,8 @@ def finish(state: State, runtime: Runtime[Context]) -> State:
         notes.append(f"Stopped early: {state['limit']}.")
     if notes:
         answer += "\n\n" + "\n".join(f"⚠ {n}" for n in notes)
+    cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
+    sources = [s for s in sources if s["n"] in cited]  # only what the answer cites
     turn = {"question": state["question"], "answer": answer}
     return {"answer": answer, "sources": sources, "conversation": [turn]}
 

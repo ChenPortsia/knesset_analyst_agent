@@ -299,7 +299,17 @@
 - Memory: `PostgresSaver` checkpoints every thread (`knesset ask "…" --thread <id>` continues a conversation; the planner sees the last 3 turns), `PostgresStore` keeps entities resolved per user across threads. Both in schema `ops` (the etl role cannot create schemas).
 - `langgraph.json` for LangGraph Studio (`uv run --with "langgraph-cli[inmem]" langgraph dev`).
 - Tests: 99 (agents rewritten on a fake LangChain chat model: full graph, revise, re-plan once, SQL check in code, interrupt/resume, conversation + Store in Postgres, limits, CLI with ask-back, one trace per question).
-- **Not yet run with real models**: one `knesset ask`, then notebook 07 (projected ≈ $1.5) to compare with the third run above.
+- First real run, `knesset ask` (Mac): 573 bills, the SQL checked in code, $0.044, 5 calls, 17 s.
+- **Fourth notebook-07 run (≈ $1.49, all checks passed)**, the same as run 3:
+  - Specialists: analyst 573 ($0.017); researcher three dated cost-of-living statements ($0.039); summarizer six themes on construction waste ($0.055).
+  - The verifier passes the correct draft and fails both planted errors ($0.0005 each).
+  - 9/10 questions answered with citations: SQL questions $0.04–0.05 in 13–20 s; text questions $0.10–0.38 in 49–93 s. Every text answer was revised after the check.
+  - 10/10 traces.
+- Fixes after the run:
+  - The planner used its 6 calls on `resolve_entity` and gave no plan (the organizations question). Now a planner or specialist that runs out of calls gets one more call without tools and answers from the tool results, as the old loop did.
+  - Answers listed up to 16 sources: the list now keeps only the sources the answer cites.
+  - One revision left an editing note in the text: the revise prompt now asks for clean final text.
+- Tests: 101.
 
 ## Changes to the plan
 

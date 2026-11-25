@@ -11,7 +11,7 @@ from typing import Any, Literal
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware
 from langchain.agents.structured_output import ProviderStrategy
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 
 from knesset.agents.contracts import AgentResult, AgentTask, Evidence, Finding, Usage
@@ -64,6 +64,17 @@ def subgraph(agent: str, model: Any) -> Any:
         middleware=[ModelCallLimitMiddleware(run_limit=MAX_CALLS, exit_behavior="end")],
         name=agent,
     )
+
+
+def last_call(model: Any, schema: type[BaseModel], system: str, messages: list, config: Any):
+    """The tool loop ran out of model calls: one more call, without tools, from what the
+    tools returned, for the structured answer. Returns {"raw": message, "parsed": answer}."""
+    seen = "\n\n".join(f"{m.name}: {str(m.content)[:8000]}" for m in messages
+                       if isinstance(m, ToolMessage))  # fmt: skip
+    text = (f"{messages[0].content}\n\nTool results so far:\n{seen or '(none)'}\n\n"
+            "No more tool calls: give your final answer now from these results.")  # fmt: skip
+    model = model.with_structured_output(schema, method="json_schema", include_raw=True)
+    return model.invoke([SystemMessage(system), HumanMessage(text)], config)
 
 
 def artifacts_of(messages: list) -> list[dict]:
@@ -124,15 +135,18 @@ def run(task: AgentTask, budget: Budget, models: ModelFactory = chat_model) -> A
             text += f"\n\nContext:\n{task.context}"
         try:
             budget.step(f"{agent} {task.task_id}")
-            graph = subgraph(agent, models(agent, EFFORT[agent]))
-            out = graph.invoke(
-                {"messages": [HumanMessage(text)]},
-                {"callbacks": [BudgetCallback(budget)], "recursion_limit": 4 * MAX_CALLS},
-            )
+            model = models(agent, EFFORT[agent])
+            config = {"callbacks": [BudgetCallback(budget)], "recursion_limit": 4 * MAX_CALLS}
+            out = subgraph(agent, model).invoke({"messages": [HumanMessage(text)]}, config)
+            messages = out["messages"]
+            answer = out.get("structured_response")
+            if answer is None:  # out of model calls
+                schema = Verdict if agent == "verifier" else Answer
+                last = last_call(model, schema, prompt(agent), messages, config)
+                messages, answer = [*messages, last["raw"]], last["parsed"]
         except (LimitReached, RuntimeError, ValueError) as e:
             span.set_attribute("error", str(e))
             return AgentResult(task_id=task.task_id, agent=agent, error=str(e))
-        messages = out["messages"]
         usage = Usage()
         for m in messages:
             if isinstance(m, AIMessage):
@@ -140,9 +154,8 @@ def run(task: AgentTask, budget: Budget, models: ModelFactory = chat_model) -> A
         span.set_attribute("cost_usd", usage.cost_usd)
         artifacts = artifacts_of(messages)
         result = AgentResult(task_id=task.task_id, agent=agent, usage=usage, artifacts=artifacts)
-        answer = out.get("structured_response")
         if answer is None:
-            result.error = f"no final answer within {MAX_CALLS} model calls"
+            result.error = "no final answer"
         elif isinstance(answer, Verdict):
             result.verdict = answer.model_dump()
         else:

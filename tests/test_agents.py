@@ -31,8 +31,9 @@ class Script:
     "missing"); `cite` is the chunk id the researcher claims (None: the first it found);
     `answer` is the draft's text; `plan` the planner's plan."""
 
-    def __init__(self, verdicts=("pass",), cite=None, plan=None, answer=None):
+    def __init__(self, verdicts=("pass",), cite=None, plan=None, answer=None, stubborn=False):
         self.verdicts, self.cite, self.plan = list(verdicts), cite, plan or PLAN
+        self.stubborn = stubborn  # the planner keeps calling tools until told to stop
         self.answer = answer or "There are 3 people [1]; the train is late [2]."
         self.prompts: list[tuple[str, str]] = []  # (agent, first human message)
         self.lock = threading.Lock()
@@ -61,7 +62,9 @@ class Script:
             if "missing" in human:
                 t3 = {"id": "t3", "agent": "researcher", "instruction": "more", "depends_on": []}
                 return self.final({"clarification": "", "tasks": [t3]})
-            if not results:
+            if "No more tool calls" in human:
+                return self.final(self.plan)
+            if not results or self.stubborn:
                 return self.call("resolve_entity", name="ועדת הכספים", types=["committee"])
             if self.plan.get("clarification") and "The user clarified" in human:
                 return self.final(PLAN)
@@ -108,10 +111,13 @@ class FakeChat(BaseChatModel):
     def bind_tools(self, tools: Any, **kwargs: Any) -> "FakeChat":
         return self
 
-    def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
-        return RunnableLambda(
-            lambda msgs, config=None: schema.model_validate_json(self.invoke(msgs, config).content)
-        )
+    def with_structured_output(self, schema: Any, include_raw: bool = False, **kw: Any) -> Any:
+        def parse(msgs: Any, config: Any = None) -> Any:
+            raw = self.invoke(msgs, config)
+            parsed = schema.model_validate_json(raw.content)
+            return {"raw": raw, "parsed": parsed} if include_raw else parsed
+
+        return RunnableLambda(parse)
 
     def _generate(self, messages: list, stop: Any = None, run_manager: Any = None, **kw: Any):
         msg = self.script.reply(self.agent, messages)
@@ -194,6 +200,18 @@ def test_full_graph(data):  # noqa: F811
     assert u["steps"] == 5 and u["calls"] == 9  # plan 2, analyst 2, researcher 2, draft, verifier 2
     assert u["cost_usd"] == pytest.approx(9 * (1000 * 2 + 100 * 10) / 1e6)
     assert len(result["trace_id"]) == 32
+
+
+def test_planner_out_of_calls_still_plans(data):  # noqa: F811
+    """A planner that never stops calling tools gets one last call without them."""
+    nodes, result, _ = run_graph(Script(stubborn=True))
+    assert nodes == CYCLE + ["verify", "finish"] and result["answer"].startswith("There are 3")
+    assert result["usage"]["calls"] == 9 - 2 + 6 + 1  # 6 planner calls, then the last one
+
+
+def test_sources_are_only_the_cited_ones(data):  # noqa: F811
+    _, result, _ = run_graph(Script(answer="There are 3 people [1]."))
+    assert [s["n"] for s in result["sources"]] == [1]
 
 
 def test_unsupported_claims_are_revised_without_searching(data):  # noqa: F811
