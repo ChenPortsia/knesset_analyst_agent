@@ -38,7 +38,7 @@ from knesset.agents.client import client_for
 from knesset.agents.contracts import AgentResult, AgentTask, Finding
 from knesset.agents.llm import Budget, LimitReached
 from knesset.agents.models import BudgetCallback, ModelFactory, chat_model
-from knesset.agents.specialist import last_call, prompt
+from knesset.agents.specialist import last_call, prompt, run_agent
 from knesset.config import settings
 from knesset.tools.common import resolve_entity
 from knesset.tools.lc import as_tool
@@ -262,16 +262,13 @@ def plan(state: State, runtime: Runtime[Context]) -> State:
         middleware=[ModelCallLimitMiddleware(run_limit=6, exit_behavior="end")],
         name="planner",
     )
-    out = planner.invoke({"messages": [HumanMessage(text)]}, ctx.config)
-    result: Plan | None = out.get("structured_response")
-    if result is None:  # out of model calls: plan from what resolve_entity returned
+    messages, result = run_agent(planner, text, ctx.config)
+    if result is None:  # out of calls or a broken JSON: plan from what the tools returned
         model = ctx.models("orchestrator", "medium")
-        result = last_call(model, Plan, prompt("orchestrator"), out["messages"], ctx.config)[
-            "parsed"
-        ]
+        result = last_call(model, Plan, prompt("orchestrator"), messages, ctx.config)["parsed"]
     if result is None:
         raise RuntimeError("the planner gave no plan")
-    remember(runtime.store, user, out["messages"])
+    remember(runtime.store, user, messages)
     rnd = state.get("round", 0) + 1
     tasks = [t.model_dump() for t in result.tasks]
     if rnd > 1:  # a re-plan: keep task ids unique across rounds

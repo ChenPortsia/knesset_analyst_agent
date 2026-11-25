@@ -316,7 +316,11 @@
 - `eval/configs.yaml`: baseline (.env), haiku-specialists, all-haiku, luna-specialists (OpenAI `gpt-6-luna` through `ChatOpenAI`; `openai` extra, `OPENAI_API_KEY`). Any agent's model can be replaced by name.
 - `knesset eval --configs … --max-usd 5`: runs every question under each configuration, never starting a question whose worst case passes the cap. It prints one line per answer and a summary per configuration (SQL right, text score, cited, $ total and per question, s per question). Answers go to `logs/eval/<time>.jsonl` and the report to `.md`.
 - GPT-6 Luna list price $0.10 / $0.50 / $0.01 cached per million tokens, from price aggregators; OpenAI's own page could not be confirmed.
-- Tests: 106.
+- First matrix run (Mac): baseline got 8/8 SQL questions right ($0.04–0.11 each, 12–38 s). It then crashed on the first text question: a researcher's final JSON came back cut off mid-string, and LangChain's `StructuredOutputValidationError` was not caught. Fixes:
+  - A broken final JSON is treated like running out of calls: the agent keeps its tool results and gets one last call without tools (specialists and planner).
+  - In the eval, one failing question is recorded with its error and the run goes on.
+  - `--resume <jsonl>` adds to an earlier run and skips the answers already there; their cost counts toward the cap.
+- Tests: 108.
 
 ## Changes to the plan
 

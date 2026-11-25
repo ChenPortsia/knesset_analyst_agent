@@ -1,6 +1,7 @@
 """The LangGraph agents end to end with a fake LangChain chat model (no paid calls)."""
 
 import json
+import re
 import threading
 from typing import Any
 
@@ -31,7 +32,10 @@ class Script:
     "missing"); `cite` is the chunk id the researcher claims (None: the first it found);
     `answer` is the draft's text; `plan` the planner's plan."""
 
-    def __init__(self, verdicts=("pass",), cite=None, plan=None, answer=None, stubborn=False):
+    def __init__(
+        self, verdicts=("pass",), cite=None, plan=None, answer=None, stubborn=False, broken=False
+    ):
+        self.broken = broken  # the researcher's final JSON is cut off
         self.verdicts, self.cite, self.plan = list(verdicts), cite, plan or PLAN
         self.stubborn = stubborn  # the planner keeps calling tools until told to stop
         self.answer = answer or "There are 3 people [1]; the train is late [2]."
@@ -80,6 +84,13 @@ class Script:
             return self.final({"findings": [{"claim": "3 people", "confidence": "high",
                                              "evidence": evidence}], "gaps": ""})  # fmt: skip
         if agent == "researcher":
+            if "No more tool calls" in human:  # the last call: cite the first evidence it saw
+                ref = re.search(r"ref['\"]?:\s*(\d+)", human).group(1)
+                evidence = [{"type": "chunk", "ref": ref, "url": None}]
+                return self.final({"findings": [{"claim": "the train is late", "evidence": evidence,
+                                                 "confidence": "high"}], "gaps": ""})  # fmt: skip
+            if self.broken and results:
+                return AIMessage('{"findings": [{"claim": "the train is la')
             if not results:
                 return self.call("search_text", query="רכבת", filters={"committee_ids": [7]}, k=1)
             hit = json.loads(results[0].content)["evidence"][0]
@@ -207,6 +218,13 @@ def test_planner_out_of_calls_still_plans(data):  # noqa: F811
     nodes, result, _ = run_graph(Script(stubborn=True))
     assert nodes == CYCLE + ["verify", "finish"] and result["answer"].startswith("There are 3")
     assert result["usage"]["calls"] == 9 - 2 + 6 + 1  # 6 planner calls, then the last one
+
+
+def test_broken_final_json_gets_a_last_call(data):  # noqa: F811
+    nodes, result, _ = run_graph(Script(broken=True))
+    assert nodes == CYCLE + ["verify", "finish"]
+    researcher = next(r for r in result["results"] if r["agent"] == "researcher")
+    assert researcher["findings"][0]["confidence"] == "high" and not researcher["error"]
 
 
 def test_sources_are_only_the_cited_ones(data):  # noqa: F811

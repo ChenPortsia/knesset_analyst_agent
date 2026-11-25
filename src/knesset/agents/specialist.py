@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware
-from langchain.agents.structured_output import ProviderStrategy
+from langchain.agents.structured_output import ProviderStrategy, StructuredOutputError
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 
@@ -64,6 +64,18 @@ def subgraph(agent: str, model: Any) -> Any:
         middleware=[ModelCallLimitMiddleware(run_limit=MAX_CALLS, exit_behavior="end")],
         name=agent,
     )
+
+
+def run_agent(graph: Any, text: str, config: Any) -> tuple[list, Any]:
+    """Run a `create_agent` graph and keep its messages even when the final JSON is broken
+    (cut off or invalid): the answer is then None, and the caller makes the last call."""
+    state: dict = {}
+    try:
+        for chunk in graph.stream({"messages": [HumanMessage(text)]}, config, stream_mode="values"):
+            state = chunk
+    except StructuredOutputError:
+        pass
+    return state.get("messages", []), state.get("structured_response")
 
 
 def last_call(model: Any, schema: type[BaseModel], system: str, messages: list, config: Any):
@@ -137,10 +149,8 @@ def run(task: AgentTask, budget: Budget, models: ModelFactory = chat_model) -> A
             budget.step(f"{agent} {task.task_id}")
             model = models(agent, EFFORT[agent])
             config = {"callbacks": [BudgetCallback(budget)], "recursion_limit": 4 * MAX_CALLS}
-            out = subgraph(agent, model).invoke({"messages": [HumanMessage(text)]}, config)
-            messages = out["messages"]
-            answer = out.get("structured_response")
-            if answer is None:  # out of model calls
+            messages, answer = run_agent(subgraph(agent, model), text, config)
+            if answer is None:  # out of model calls, or a broken final JSON
                 schema = Verdict if agent == "verifier" else Answer
                 last = last_call(model, schema, prompt(agent), messages, config)
                 messages, answer = [*messages, last["raw"]], last["parsed"]

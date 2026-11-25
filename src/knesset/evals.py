@@ -47,6 +47,20 @@ def grade(q: dict, answer: str, sources: list[dict], expected: list[str] | None 
     return {"score": sum(groups) / len(groups), "missed": missed, "cited": cited}
 
 
+def answer_one(question: str, user_id: str, models: Callable[[], ModelFactory]) -> dict:
+    """The graph's result, or an empty one with the error: one broken question must not stop
+    a paid run (its cost is then not known here; Phoenix has it)."""
+    try:
+        *_, (_, result) = ask(question, user_id=user_id, models=models(),
+                              filters={"knessets": [25, 26]})  # fmt: skip
+        return result
+    except Exception as e:
+        usage = {"cost_usd": 0.0, "calls": 0, "steps": 0, "seconds": 0}
+        error = f"{type(e).__name__}: {e}"[:500]
+        return {"answer": "", "sources": [], "verdict": None, "trace_id": "", "error": error,
+                "usage": usage}  # fmt: skip
+
+
 def run(
     configs: list[str],
     max_usd: float,
@@ -55,22 +69,28 @@ def run(
     out: Path | None = None,
 ) -> Iterator[dict]:
     """Every question under every configuration, while the worst case fits under `max_usd`.
-    Yields one graded row per answer and appends it to `out` (JSONL)."""
+    Yields one graded row per answer and appends it to `out` (JSONL). Answers already in `out`
+    are yielded again, not re-run (resume); their cost counts toward the cap. A question that
+    fails is recorded with its error, and the run goes on."""
     s = settings()
     questions = [q for q in load(QUESTIONS) if not ids or q["id"] in ids]
     matrix = load(CONFIGS)
     expected = {q["id"]: truth(q["sql"]) for q in questions if q["kind"] == "sql"}
     out = out or s.log_dir / "eval" / f"{datetime.now():%Y-%m-%d_%H%M}.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
-    spent = 0.0
+    done = {(r["config"], r["id"]): r for r in map(json.loads, out.read_text().splitlines())
+            if "score" in r} if out.exists() else {}  # fmt: skip
+    spent = sum(r["cost_usd"] for r in done.values())
     for name in configs:
         names = matrix[name] or {}
         for q in questions:
+            if (name, q["id"]) in done:
+                yield done[name, q["id"]]
+                continue
             if spent + s.agent_max_cost_usd > max_usd:
                 yield {"config": name, "id": q["id"], "skipped": f"${spent:.2f} spent"}
                 continue
-            *_, (_, result) = ask(q["question"], user_id=f"eval-{name}", models=models(names),
-                                  filters={"knessets": [25, 26]})  # fmt: skip
+            result = answer_one(q["question"], f"eval-{name}", lambda names=names: models(names))
             u = result["usage"]
             spent += u["cost_usd"]
             answer = result["answer"] or ""
@@ -81,7 +101,7 @@ def run(
                 "verdict": (result["verdict"] or {}).get("status"),
                 "cost_usd": round(u["cost_usd"], 4), "calls": u["calls"], "steps": u["steps"],
                 "seconds": u["seconds"], "trace_id": result["trace_id"], "answer": answer,
-                "sources": result["sources"], "models": names,
+                "sources": result["sources"], "models": names, "error": result.get("error"),
             }  # fmt: skip
             with out.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")

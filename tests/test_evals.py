@@ -70,5 +70,27 @@ def test_matrix_runs_grades_and_reports(data, tmp_path, monkeypatch):  # noqa: F
     assert line["sql_right"] == "1/1" and line["text_score"] == 0.5 and line["cited"] == "2/2"
     assert "| people | cheap | 1.00 | True |" in evals.markdown(rows)
     # the cap: no question starts whose worst case would pass it
-    skipped = list(evals.run(["baseline"], 0.1, models=lambda n: Script().models, out=out))
+    fresh = tmp_path / "capped.jsonl"
+    skipped = list(evals.run(["baseline"], 0.1, models=lambda n: Script().models, out=fresh))
     assert all("skipped" in r for r in skipped)
+
+
+def test_eval_goes_on_after_an_error_and_resumes(data, tmp_path, monkeypatch):  # noqa: F811
+    questions = [{"id": "people", "kind": "sql", "question": "כמה אנשים?",
+                  "sql": "select count(*) from marts.dim_person"}]  # fmt: skip
+    (tmp_path / "q.yaml").write_text(yaml.safe_dump(questions, allow_unicode=True))
+    (tmp_path / "c.yaml").write_text("baseline: {}\nbad: {}\n")
+    monkeypatch.setattr(evals, "QUESTIONS", tmp_path / "q.yaml")
+    monkeypatch.setattr(evals, "CONFIGS", tmp_path / "c.yaml")
+
+    def models(names):
+        if calls.append(names) or len(calls) == 2:
+            raise RuntimeError("broken model")
+        return Script().models
+
+    calls: list = []
+    out = tmp_path / "run.jsonl"
+    rows = list(evals.run(["baseline", "bad"], 5.0, models=models, out=out))
+    assert [r["score"] for r in rows] == [1.0, 0.0] and "broken model" in rows[1]["error"]
+    again = list(evals.run(["baseline", "bad"], 5.0, models=models, out=out))
+    assert again == rows and len(calls) == 2  # resumed: nothing re-run

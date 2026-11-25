@@ -345,6 +345,7 @@ def evaluate(
     configs: str = typer.Option("baseline", help="Comma-separated names from eval/configs.yaml"),
     max_usd: float = typer.Option(5.0, help="Stop before a question whose worst case passes it"),
     ids: str = typer.Option("", help="Only these question ids (comma-separated)"),
+    resume: str = typer.Option("", help="An earlier run's .jsonl: add to it, skip what is done"),
 ) -> None:
     """Paid: the eval set under each model configuration, graded in code (eval/)."""
     from datetime import datetime
@@ -361,13 +362,18 @@ def evaluate(
         typer.echo(f"ERR  unknown configs: {', '.join(sorted(unknown))}", err=True)
         raise typer.Exit(2)
     results = []
-    out = settings().log_dir / "eval" / f"{datetime.now():%Y-%m-%d_%H%M}.jsonl"
+    out = (
+        Path(resume)
+        if resume
+        else settings().log_dir / "eval" / f"{datetime.now():%Y-%m-%d_%H%M}.jsonl"
+    )
     for r in evals.run(names, max_usd, [i for i in ids.split(",") if i] or None, out=out):
         results.append(r)
         if "skipped" in r:
             typer.echo(f"skip   {r['config']:<18} {r['id']} ({r['skipped']})")
             continue
         missed = f" missed {', '.join(r['missed'])}" if r["missed"] else ""
+        missed += f" ERROR {r['error'][:120]}" if r.get("error") else ""
         typer.echo(f"{r['score']:.2f}   {r['config']:<18} {r['id']:<24} ${r['cost_usd']:.3f} "
                    f"{r['seconds']:>5} s{missed}")  # fmt: skip
     report = evals.markdown(results)
