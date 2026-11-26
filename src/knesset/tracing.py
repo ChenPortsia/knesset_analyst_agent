@@ -2,6 +2,7 @@
 entry point; until then spans are no-ops."""
 
 import base64
+import os
 import time
 from functools import cache
 from typing import Any
@@ -26,7 +27,23 @@ def setup(project: str = PROJECT) -> TracerProvider:
         verbose=False,
     )
     add_langfuse(provider)
+    enable_langsmith()
     return provider
+
+
+def enable_langsmith() -> bool:
+    """LangChain and LangGraph send their runs to LangSmith when LANGSMITH_* are in the process
+    environment; .env is read by our settings only, so hand them over here (the key is never
+    logged)."""
+    s = settings()
+    if not (s.langsmith_tracing and s.langsmith_api_key):
+        return False
+    os.environ["LANGSMITH_TRACING"] = "true"
+    os.environ["LANGSMITH_API_KEY"] = s.langsmith_api_key
+    os.environ["LANGSMITH_PROJECT"] = s.langsmith_project
+    if s.langsmith_endpoint:
+        os.environ["LANGSMITH_ENDPOINT"] = s.langsmith_endpoint
+    return True
 
 
 def add_langfuse(provider: Any) -> None:

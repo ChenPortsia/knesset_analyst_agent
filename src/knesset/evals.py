@@ -49,7 +49,11 @@ def grade(q: dict, answer: str, sources: list[dict], expected: list[str] | None 
 
 
 def answer_one(
-    question: str, user_id: str, models: Callable[[], ModelFactory], before: list[str] = ()
+    question: str,
+    user_id: str,
+    models: Callable[[], ModelFactory],
+    before: list[str] = (),
+    tags: list[str] | None = None,
 ) -> dict:
     """The graph's result (after the `before` questions, asked first in the same thread), or
     an empty one with the error: one broken question must not stop a paid run (its cost is
@@ -58,7 +62,8 @@ def answer_one(
     try:
         cost = 0.0
         for q in [*before, question]:  # no UI filters: each question says which Knesset
-            *_, (_, result) = ask(q, user_id=user_id, thread_id=thread, models=models())
+            *_, (_, result) = ask(q, user_id=user_id, thread_id=thread, models=models(),
+                                  tags=tags)  # fmt: skip
             cost += result["usage"]["cost_usd"]
         result["usage"]["cost_usd"] = cost
         return result
@@ -111,6 +116,7 @@ def run(
                 f"eval-{name}",
                 lambda names=names: models(names),
                 q.get("before", []),
+                tags=["eval", f"config:{name}", f"q:{q['id']}", q["kind"]],
             )
             u = result["usage"]
             spent += u["cost_usd"]

@@ -387,6 +387,16 @@
   - **Measured (baseline, 26 questions, $0.74):** SQL 13/13 (with the stricter grading: 24 vs 25 now needs both 102 and 573), text 1.00, cited 26/26, $0.029 per question (was $0.032), 43 s. Revised 12/26: 10 of 13 text answers (was about 11) and 2 SQL answers over wording ("held" vs session records, "so far").
   - Cost shares: draft 45%, plan 21%, revise 16%, researcher 9%, verifier 4%, summarizer 3%, analyst 2% — the Sonnet orchestrator steps take about 82%, the Haiku specialists about 14%.
   - Next changes (the user's choice): a `writer` role in `agents.yaml` for draft and revise (Sonnet 5.5, effort `low`; planning keeps `medium`), eval configs `haiku-writer` and `writer-medium` (a config may set `{model, effort}`); the verifier flags facts, not wording (no issue for a missing qualifier, a hedge or a faithful paraphrase).
+  - **Measured (26 questions × 3 configs, $1.58):**
+
+    | config | SQL | text | revised | $ / question | draft + revise share |
+    |---|---|---|---|---|---|
+    | baseline (Sonnet writer, effort low) | 13/13 | 1.00 | 9/26 | 0.026 | 61% |
+    | writer-medium (Sonnet, medium) | 13/13 | 0.92 | 8/26 | 0.024 | 61% |
+    | haiku-writer | 13/13 | 0.97 | 8/26 | 0.010 | 7% |
+
+    Effort low vs medium made no cost difference (within noise). The relaxed verifier cut revisions from 12/26 to 8–9/26. Haiku as writer cuts cost by 60% with the same scores; read in its answers: caveats sometimes in English under a Hebrew answer, and one answer cut off mid-sentence after its revision (follow-up on the plenum).
+  - LangSmith (the user's request): `LANGSMITH_*` from `.env` are handed to LangChain at `tracing.setup()`; runs are named `question` with tags (`eval`, `config:<name>`, `q:<id>`, sql/text) and metadata (user, thread, question). Tests switch it off.
   - `bill_votes` labels the last vote `final` (it had read "סעיף 9" in its subject and said "second", so answers doubted the final vote).
 - Tests: 122.
 

@@ -546,6 +546,7 @@ def ask(
     models: ModelFactory | None = None,
     graph: Any = None,
     resume: str | None = None,
+    tags: list[str] | None = None,
 ) -> Iterator[tuple[str, dict]]:
     """Run one question (or resume a paused one) and stream it: ("<node>", update),
     ("event", custom progress), ("tool", a subgraph's tool call), ("interrupt", question), then
@@ -553,7 +554,14 @@ def ask(
     graph = graph or build(*_memory())
     thread_id = thread_id or uuid.uuid4().hex
     ctx = Context(budget=Budget.from_settings(), models=models or chat_model)
-    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 80}
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": 80,
+        # how the run is named and filtered in LangSmith (when LANGSMITH_* are set)
+        "run_name": "question",
+        "tags": tags or [],
+        "metadata": {"user_id": user_id, "thread_id": thread_id, "question": question[:200]},
+    }
     inp: Any = (
         Command(resume=resume)
         if resume is not None

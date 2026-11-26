@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_base_url: str = "https://cloud.langfuse.com"
+    # LangSmith (optional): LangChain/LangGraph trace there when these are set; .env only
+    langsmith_tracing: bool = False
+    langsmith_api_key: str = ""
+    langsmith_project: str = "knesset-agents"
+    langsmith_endpoint: str = ""  # e.g. https://eu.api.smith.langchain.com for the EU region
 
     odata_concurrency: int = 8
 

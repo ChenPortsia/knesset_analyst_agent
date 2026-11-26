@@ -79,3 +79,21 @@ def test_langfuse_keeps_the_phoenix_exporter(monkeypatch):
     names = [type(p).__name__ for p in provider._active_span_processor._span_processors]
     assert len(names) == 2, names
     provider.shutdown()
+
+
+def test_langsmith_gets_its_settings_from_env_file(monkeypatch):
+    """LangChain reads LANGSMITH_* from the process environment; .env reaches only our settings."""
+    import os
+
+    from knesset import tracing
+    from knesset.config import settings
+
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "ls-test")
+    monkeypatch.delenv("LANGSMITH_PROJECT", raising=False)
+    settings.cache_clear()
+    assert tracing.enable_langsmith()
+    assert os.environ["LANGSMITH_PROJECT"] == "knesset-agents"
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    settings.cache_clear()
+    assert not tracing.enable_langsmith()

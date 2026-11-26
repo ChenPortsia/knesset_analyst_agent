@@ -37,6 +37,7 @@ The full plan is in `PLAN.md`. Status per phase is in `PROGRESS.md`.
 - `uv run --extra embed knesset ask "…" [--thread <id>]` — paid: ask the agents (LangGraph; streams steps, asks back if unclear, `--thread` continues a conversation; capped by `AGENT_MAX_COST_USD` per question); notebook 07 is capped at $5
 - `uv run --extra embed --with "langgraph-cli[inmem]" langgraph dev` — the graph in LangGraph Studio (`langgraph.json`)
 - `uv run --extra embed knesset eval --configs baseline,haiku-specialists [--max-usd 5] [--ids …] [--resume logs/eval/<run>.jsonl]` — paid: the eval set (`eval/questions.yaml`) under model configurations (`eval/configs.yaml`), graded in code; answers + Markdown report in `logs/eval/`; OpenAI models need `--extra openai` and `OPENAI_API_KEY`
+- LangSmith (optional): `LANGSMITH_TRACING=true` + `LANGSMITH_API_KEY` in `.env`; `ask` and `eval` hand them to LangChain (runs tagged `eval`, `config:<name>`, `q:<id>`)
 - Agent models and effort: `src/knesset/agents/agents.yaml` (not `.env`); limits stay in `.env`
 - Semantic layer (what the data means, for the agents): `src/knesset/semantic.yaml`; add a metric there rather than a new SQL tool
 - `uv run knesset traces [--n 10]` — recent agent questions from Phoenix: path, verdict, cost, steps, answer

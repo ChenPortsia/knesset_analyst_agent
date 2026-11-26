@@ -15,6 +15,8 @@ def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("PHOENIX_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "")
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")  # no test run leaves for LangSmith
+    monkeypatch.setenv("LANGSMITH_API_KEY", "")
     settings.cache_clear()
     yield
     settings.cache_clear()
