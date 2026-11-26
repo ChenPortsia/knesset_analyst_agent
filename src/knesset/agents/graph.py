@@ -388,12 +388,30 @@ def structured(ctx: Context, step: str, schema: type[BaseModel], shared: str, re
     return model.invoke([SystemMessage(prompt("draft")), message], ctx.config(step))
 
 
+ENDINGS = tuple(".!?…)]\"'״׳:;%|*")
+
+
+def cut_off(text: str) -> bool:
+    """An answer that stops mid-sentence (it ends without punctuation, a citation or a table)."""
+    text = text.strip()
+    return bool(text) and not text.endswith(ENDINGS)
+
+
+def write(ctx: Context, step: str, shared: str, rest: str) -> Draft:
+    """The writer's answer; once more if it stopped mid-sentence."""
+    result: Draft = structured(ctx, step, Draft, shared, rest)
+    if cut_off(result.answer):
+        again = rest + "\n\nYour last answer stopped mid-sentence. Write it complete, shorter."
+        result = structured(ctx, step, Draft, shared, again)
+    return result
+
+
 def draft(state: State, runtime: Runtime[Context]) -> State:
     ctx = runtime.context
     ctx.budget.step("draft")
     sources = sources_of(state["results"])
     rest = f"Question: {state['question']}\n\nWrite the answer from the findings above."
-    result: Draft = structured(ctx, "draft", Draft, evidence(state["results"], sources), rest)
+    result = write(ctx, "draft", evidence(state["results"], sources), rest)
     return {"draft": result.model_dump(), "sources": sources}
 
 
@@ -455,9 +473,11 @@ def revise(state: State, runtime: Runtime[Context]) -> State:
         f"\n\nThe verifier found these issues:\n{tag('issues', issues)}\n\n"
         "Rewrite the answer: remove or correct each flagged claim, or state it as uncertain. "
         "Add no new fact. Write it as clean final text: no wrong values left in, no editing "
-        "notes. Say in caveats what you removed."
+        "notes. Say in caveats, in the answer's language, what you removed."
     )
-    result: Draft = structured(ctx, "revise", Draft, evidence(state["results"], sources), rest)
+    result = write(ctx, "revise", evidence(state["results"], sources), rest)
+    if cut_off(result.answer):  # keep the draft; finish says it was not fully verified
+        return {"revised": False}
     return {"draft": result.model_dump(), "revised": True}
 
 

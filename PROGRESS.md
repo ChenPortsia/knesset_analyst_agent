@@ -396,6 +396,7 @@
     | haiku-writer | 13/13 | 0.97 | 8/26 | 0.010 | 7% |
 
     Effort low vs medium made no cost difference (within noise). The relaxed verifier cut revisions from 12/26 to 8–9/26. Haiku as writer cuts cost by 60% with the same scores; read in its answers: caveats sometimes in English under a Hebrew answer, and one answer cut off mid-sentence after its revision (follow-up on the plenum).
+  - Two fixes for the Haiku writer (the user's choice): the draft prompt asks for everything, caveats included, in the question's language and for no cut-off sentence; an answer that stops mid-sentence (no closing punctuation, citation or table) is written once more, and a revision still cut off keeps the draft (marked not fully verified).
   - LangSmith (the user's request): `LANGSMITH_*` from `.env` are handed to LangChain at `tracing.setup()`; runs are named `question` with tags (`eval`, `config:<name>`, `q:<id>`, sql/text) and metadata (user, thread, question). Tests switch it off.
   - `bill_votes` labels the last vote `final` (it had read "סעיף 9" in its subject and said "second", so answers doubted the final vote).
 - Tests: 122.

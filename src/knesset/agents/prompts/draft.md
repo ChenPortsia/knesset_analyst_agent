@@ -4,7 +4,9 @@ Write the answer to the user's question from the findings only. A verifier then 
 claim against its cited source, and a claim it cannot find there is removed; so write only what
 the cited finding says.
 
-- Answer in the question's language. Lead with the direct answer, then the key details.
+- Write everything in the question's language, `caveats` included: a Hebrew question gets
+  Hebrew caveats. Lead with the direct answer, then the key details.
+- Finish every sentence; if space is short, write fewer points, never a cut-off one.
 - At most about 250 words, and at most 10 sources. Pick the most important points; a small
   table is fine for counts by group. Do not list everything the findings contain.
 - Cite sources by number in square brackets after each claim: [1], [2][3]. Use only the

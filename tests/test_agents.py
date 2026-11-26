@@ -43,6 +43,7 @@ class Script:
         self, verdicts=("pass",), cite=None, plan=None, answer=None, stubborn=False, broken=False
     ):
         self.broken = broken  # the researcher's final JSON is cut off
+        self.cut = 0  # how many writer answers stop mid-sentence first
         self.verdicts, self.cite, self.plan = list(verdicts), cite, plan or PLAN
         self.stubborn = stubborn  # the planner keeps calling tools until told to stop
         self.answer = answer or "There are 3 people [1]; the train is late [2]."
@@ -83,6 +84,9 @@ class Script:
         if agent == "writer" and "verifier found these issues" in human:
             return self.final({"answer": "There are 3 people [1].", "caveats": "Removed the 4."})
         if agent == "writer":  # the draft
+            if self.cut and "stopped mid-sentence" not in human:
+                self.cut -= 1
+                return self.final({"answer": "There are 3 people [1] and the tr", "caveats": ""})
             return self.final({"answer": self.answer, "caveats": ""})
         if agent == "analyst":
             if not results:
@@ -278,6 +282,16 @@ def test_sql_only_answer_is_checked_in_code(data):  # noqa: F811
     assert any(a == "verifier" for a, _ in script.prompts) and "revise" in nodes
 
 
+def test_cut_off_answers_are_written_again(data):  # noqa: F811
+    assert graph.cut_off("וש") and graph.cut_off("the train is la")
+    assert not graph.cut_off("573 [1].") and not graph.cut_off("| 24 | 102 |")
+    script = Script()
+    script.cut = 1
+    _, result, _ = run_graph(script)
+    assert result["answer"] == "There are 3 people [1]; the train is late [2]."
+    assert sum(a == "writer" for a, _ in script.prompts) == 2  # one retry
+
+
 def test_numbers_check_reads_sql_calc_and_passages():
     calc = {"type": "calc", "ref": "100 * 1 / 8 = 12.5"}
     chunk = {"type": "chunk", "ref": "7"}
@@ -440,3 +454,16 @@ def test_tool_loops_cache_their_prompt():
 
     names = [type(m).__name__ for m in middleware(8)]
     assert names == ["ModelCallLimitMiddleware", "AnthropicPromptCachingMiddleware"]
+
+
+def test_a_cut_off_revision_keeps_the_draft(data, monkeypatch):  # noqa: F811
+    real = graph.write
+
+    def write(ctx, step, shared, rest):
+        result = real(ctx, step, shared, rest)
+        return result.model_copy(update={"answer": "There are 3"}) if step == "revise" else result
+
+    monkeypatch.setattr(graph, "write", write)
+    _, result, _ = run_graph(Script(verdicts=["unsupported"]))
+    assert result["answer"].startswith("There are 3 people [1]; the train is late [2].")
+    assert "Not fully verified" in result["answer"] and not result["revised"]
