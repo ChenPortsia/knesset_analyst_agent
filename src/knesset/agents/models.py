@@ -70,9 +70,17 @@ def chat_model(agent: str, effort: str = "medium", name: str | None = None) -> B
     )
 
 
-def factory(names: dict[str, str]) -> ModelFactory:
-    """A model factory with some agents' models replaced (agent → model name)."""
-    return lambda agent, effort="medium": chat_model(agent, effort, names.get(agent))
+def factory(names: dict[str, Any]) -> ModelFactory:
+    """A model factory with some agents' models replaced: agent → model name, or
+    {model, effort} to change the effort too (eval/configs.yaml)."""
+
+    def make(agent: str, effort: str = "medium") -> BaseChatModel:
+        name = names.get(agent)
+        if isinstance(name, dict):
+            return chat_model(agent, name.get("effort", effort), name.get("model"))
+        return chat_model(agent, effort, name)
+
+    return make
 
 
 def price(model: str) -> tuple[float, float, float]:

@@ -33,6 +33,10 @@ def test_factory_replaces_only_named_agents(monkeypatch):
     assert models("analyst").model == "claude-sonnet-5-5"
     assert models("researcher").model == "claude-haiku-5-5"  # the default
     assert price("gpt-6-luna-2026-09-22") == (0.10, 0.50, 0.01)
+    medium = factory({"writer": {"model": "claude-sonnet-5-5", "effort": "medium"}})(
+        "writer", "low"
+    )
+    assert medium.output_config == {"effort": "medium"}  # a config can change the effort too
 
 
 def test_openai_models(monkeypatch):

@@ -379,7 +379,7 @@ def structured(ctx: Context, step: str, schema: type[BaseModel], shared: str, re
     revision; `rest` is the question and the instruction."""
     from langchain_anthropic import ChatAnthropic
 
-    chat = ctx.models("orchestrator", effort("orchestrator"))
+    chat = ctx.models("writer", effort("writer"))
     first: dict[str, Any] = {"type": "text", "text": shared}
     if isinstance(chat, ChatAnthropic):
         first["cache_control"] = {"type": "ephemeral"}

@@ -80,7 +80,7 @@ number was already checked in code.
 | Orchestrator graph | **LangGraph** `StateGraph`: start → plan → dispatch ⇉ specialists → draft → verify → revise / finish |
 | Specialists | **LangChain `create_agent`** subgraphs: their tools, a strict output schema (`ProviderStrategy`), a model-call limit middleware |
 | Models | **`ChatAnthropic`** (`agents/models.py`) with effort and server-side refusal fallback (Opus/Sonnet); any LangChain chat model plugs in through the factory in the runtime context |
-| Models (`src/knesset/agents/agents.yaml`) | Orchestrator: Claude Sonnet 5.5 · Analyst, researcher, summarizer, verifier: Haiku 5.5 (eval matrix, 25 Nov 2026) |
+| Models (`src/knesset/agents/agents.yaml`) | Orchestrator (plan): Claude Sonnet 5.5, effort medium · Writer (draft, revise): Sonnet 5.5, effort low · Analyst, researcher, summarizer, verifier: Haiku 5.5 |
 | Contract | `AgentTask` → `AgentResult` (pydantic, JSON) through `AgentClient` — in process now, A2A in Phase 8 |
 | Tools | Plain Python functions (`tools/`), each returning JSON with an `evidence` list; `langchain-core` builds their schemas |
 | Database | PostgreSQL 17 + pgvector (Docker), read-only role `agent_ro` for agents |

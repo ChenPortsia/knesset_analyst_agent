@@ -80,9 +80,9 @@ class Script:
             if self.plan.get("clarification") and "The user clarified" in human:
                 return self.final(PLAN)
             return self.final(self.plan)
-        if agent == "orchestrator" and "verifier found these issues" in human:
+        if agent == "writer" and "verifier found these issues" in human:
             return self.final({"answer": "There are 3 people [1].", "caveats": "Removed the 4."})
-        if agent == "orchestrator":  # the draft
+        if agent == "writer":  # the draft
             return self.final({"answer": self.answer, "caveats": ""})
         if agent == "analyst":
             if not results:
@@ -248,7 +248,7 @@ def test_sources_are_only_the_cited_ones(data):  # noqa: F811
 def test_unsupported_claims_are_revised_without_searching(data):  # noqa: F811
     script = Script(verdicts=["unsupported"])
     nodes, result, _ = run_graph(script)
-    draft, revise = [p for a, p in script.prompts if a == "orchestrator"]
+    draft, revise = [p for a, p in script.prompts if a == "writer"]
     shared = draft.split("Question:")[0]  # findings + sources: the cached prefix of both
     assert "<findings>" in shared and revise.startswith(shared)
     assert result["revised"] and result["cost_by_step"]["revise"] > 0
@@ -428,7 +428,8 @@ def test_agents_config_names_every_agent_with_a_priced_model():
     from knesset.enrich.llm import PRICES
 
     config = agents()
-    assert set(config) == {"orchestrator", "analyst", "researcher", "summarizer", "verifier"}
+    assert set(config) == {"orchestrator", "writer", "analyst", "researcher", "summarizer",
+                           "verifier"}  # fmt: skip
     assert all(
         c["model"] in PRICES and c["effort"] in ("low", "medium", "high") for c in config.values()
     )

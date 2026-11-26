@@ -18,6 +18,10 @@ luna-specialists:  # OpenAI; needs OPENAI_API_KEY in .env and the `openai` extra
   analyst: gpt-6-luna
   researcher: gpt-6-luna
   summarizer: gpt-6-luna
+haiku-writer:  # draft and revise on Haiku: writing from checked findings
+  writer: claude-haiku-5-5
+writer-medium:  # the writer at medium effort, as before 26 Nov 2026
+  writer: {model: claude-sonnet-5-5, effort: medium}
 luna-analyst:  # one role at a time: is Luna better at the structured (metric/SQL) work?
   analyst: gpt-6-luna
 luna-summarizer:  # ... or at broad summaries over many passages?
