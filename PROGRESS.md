@@ -384,6 +384,8 @@
     1. The draft prompt names the reasons the verifier removed claims (added titles, roles, party labels or dates; generalizations; joined findings) and asks for each claim in its finding's own words: in the run about 11 of 13 baseline text answers were revised by Sonnet.
     2. Draft and revise start with the same findings and sources, cached on the draft call (a `cache_control` block; Claude only), so the revision reads them at the cache price.
     3. Cost per step and agent (plan, analyst, researcher, summarizer, draft, verifier, revise) in every answer (`cost_by_step`), the revision rate and the cost shares per configuration in the eval report.
+  - **Measured (baseline, 26 questions, $0.74):** SQL 13/13 (with the stricter grading: 24 vs 25 now needs both 102 and 573), text 1.00, cited 26/26, $0.029 per question (was $0.032), 43 s. Revised 12/26: 10 of 13 text answers (was about 11) and 2 SQL answers over wording ("held" vs session records, "so far").
+  - Cost shares: draft 45%, plan 21%, revise 16%, researcher 9%, verifier 4%, summarizer 3%, analyst 2% — the Sonnet orchestrator steps take about 82%, the Haiku specialists about 14%.
   - `bill_votes` labels the last vote `final` (it had read "סעיף 9" in its subject and said "second", so answers doubted the final vote).
 - Tests: 122.
 
