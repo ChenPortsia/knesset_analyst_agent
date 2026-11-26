@@ -99,8 +99,8 @@ class BudgetCallback(BaseCallbackHandler):
 
     raise_error = True  # LimitReached must reach the graph, not be logged and swallowed
 
-    def __init__(self, budget: Budget):
-        self.budget = budget
+    def __init__(self, budget: Budget, step: str = "other"):
+        self.budget, self.step = budget, step
 
     def on_chat_model_start(self, serialized: Any, messages: Any, **kwargs: Any) -> None:
         self.budget.check()
@@ -108,4 +108,4 @@ class BudgetCallback(BaseCallbackHandler):
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
         for generations in response.generations:
             for g in generations:
-                self.budget.charge(usage_of(getattr(g, "message", None)))
+                self.budget.charge(usage_of(getattr(g, "message", None)), self.step)

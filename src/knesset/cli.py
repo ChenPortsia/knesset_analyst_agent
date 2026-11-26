@@ -379,7 +379,9 @@ def evaluate(
     report = evals.markdown(results)
     out.with_suffix(".md").write_text(report, encoding="utf-8")
     typer.echo(
-        "\n" + report.split("\n\n")[0] + f"\n\nanswers: {out}\nreport: {out.with_suffix('.md')}"
+        "\n"
+        + "\n\n".join(report.split("\n\n")[:2])
+        + f"\n\nanswers: {out}\nreport: {out.with_suffix('.md')}"
     )
     tracing.flush()
 

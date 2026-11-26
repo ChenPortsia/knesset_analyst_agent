@@ -17,6 +17,7 @@ class Budget:
     def __init__(self, max_cost_usd: float, max_steps: int, timeout_s: float):
         self.max_cost_usd, self.max_steps, self.timeout_s = max_cost_usd, max_steps, timeout_s
         self.usage = Usage()
+        self.by_step: dict[str, float] = {}  # cost per graph step or agent (plan, analyst, …)
         self.steps = 0
         self.started = time.monotonic()
         self.lock = threading.Lock()
@@ -26,9 +27,10 @@ class Budget:
         s = settings()
         return cls(s.agent_max_cost_usd, s.agent_max_steps, s.agent_timeout_s)
 
-    def charge(self, usage: Usage) -> None:
+    def charge(self, usage: Usage, step: str = "other") -> None:
         with self.lock:
             self.usage.add(usage)
+            self.by_step[step] = self.by_step.get(step, 0.0) + usage.cost_usd
 
     def step(self, what: str) -> None:
         with self.lock:

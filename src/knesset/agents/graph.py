@@ -104,9 +104,9 @@ class Context:
     budget: Budget = field(default_factory=Budget.from_settings)
     models: ModelFactory = chat_model
 
-    @property
-    def config(self) -> dict:
-        return {"callbacks": [BudgetCallback(self.budget)]}
+    def config(self, step: str) -> dict:
+        """Model-call config for one graph step: its cost is charged to that step."""
+        return {"callbacks": [BudgetCallback(self.budget, step)]}
 
 
 # ---------------------------------------------------------------- formatting
@@ -305,10 +305,11 @@ def plan(state: State, runtime: Runtime[Context]) -> State:
         middleware=middleware(6),
         name="planner",
     )
-    messages, result = run_agent(planner, text, ctx.config)
+    messages, result = run_agent(planner, text, ctx.config("plan"))
     if result is None:  # out of calls or a broken JSON: plan from what the tools returned
         model = ctx.models("orchestrator", effort("orchestrator"))
-        result = last_call(model, Plan, prompt("orchestrator"), messages, ctx.config)["parsed"]
+        last = last_call(model, Plan, prompt("orchestrator"), messages, ctx.config("plan"))
+        result = last["parsed"]
     if result is None:
         raise RuntimeError("the planner gave no plan")
     remember(runtime.store, user, messages)
@@ -372,22 +373,27 @@ def specialist(payload: TaskState, runtime: Runtime[Context]) -> State:
     return {"results": [result.model_dump()]}
 
 
-def structured(ctx: Context, schema: type[BaseModel], system: str, text: str) -> Any:
-    model = ctx.models("orchestrator", effort("orchestrator")).with_structured_output(
-        schema, method="json_schema"
-    )
-    return model.invoke([SystemMessage(system), HumanMessage(text)], ctx.config)
+def structured(ctx: Context, step: str, schema: type[BaseModel], shared: str, rest: str) -> Any:
+    """One orchestrator call for a JSON answer. `shared` (the findings and sources) starts both
+    the draft and its revision, so it is cached on the draft call and read cheaply by the
+    revision; `rest` is the question and the instruction."""
+    from langchain_anthropic import ChatAnthropic
+
+    chat = ctx.models("orchestrator", effort("orchestrator"))
+    first: dict[str, Any] = {"type": "text", "text": shared}
+    if isinstance(chat, ChatAnthropic):
+        first["cache_control"] = {"type": "ephemeral"}
+    message = HumanMessage([first, {"type": "text", "text": rest}])
+    model = chat.with_structured_output(schema, method="json_schema")
+    return model.invoke([SystemMessage(prompt("draft")), message], ctx.config(step))
 
 
 def draft(state: State, runtime: Runtime[Context]) -> State:
     ctx = runtime.context
     ctx.budget.step("draft")
     sources = sources_of(state["results"])
-    text = (
-        evidence(state["results"], sources)
-        + f"\n\nQuestion: {state['question']}\n\nWrite the answer from the findings above."
-    )
-    result: Draft = structured(ctx, Draft, prompt("draft"), text)
+    rest = f"Question: {state['question']}\n\nWrite the answer from the findings above."
+    result: Draft = structured(ctx, "draft", Draft, evidence(state["results"], sources), rest)
     return {"draft": result.model_dump(), "sources": sources}
 
 
@@ -444,15 +450,14 @@ def revise(state: State, runtime: Runtime[Context]) -> State:
     sources = state["sources"]
     issues = "\n".join(f"- {i['claim']}: {i['problem']}" for i in state["verdict"]["issues"])
     draft = tag("draft", state["draft"]["answer"])
-    text = (
-        evidence(state["results"], sources)
-        + f"\n\nQuestion: {state['question']}\n\nYour draft:\n{draft}"
-        + f"\n\nThe verifier found these issues:\n{tag('issues', issues)}\n\n"
+    rest = (
+        f"Question: {state['question']}\n\nYour draft:\n{draft}"
+        f"\n\nThe verifier found these issues:\n{tag('issues', issues)}\n\n"
         "Rewrite the answer: remove or correct each flagged claim, or state it as uncertain. "
         "Add no new fact. Write it as clean final text: no wrong values left in, no editing "
         "notes. Say in caveats what you removed."
     )
-    result: Draft = structured(ctx, Draft, prompt("draft"), text)
+    result: Draft = structured(ctx, "revise", Draft, evidence(state["results"], sources), rest)
     return {"draft": result.model_dump(), "revised": True}
 
 
@@ -596,6 +601,8 @@ def ask(
         "sources": final.get("sources", []),
         "verdict": final.get("verdict"),
         "results": final.get("results", []),
+        "revised": bool(final.get("revised")),
+        "cost_by_step": {k: round(v, 5) for k, v in ctx.budget.by_step.items()},
         "usage": ctx.budget.usage.model_dump() | {"steps": ctx.budget.steps,
                                                   "seconds": round(time.monotonic() - started, 1)},
         "trace_id": trace_id,

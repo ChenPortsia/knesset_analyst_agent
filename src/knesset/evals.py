@@ -123,14 +123,19 @@ def run(
                 "cost_usd": round(u["cost_usd"], 4), "calls": u["calls"], "steps": u["steps"],
                 "seconds": u["seconds"], "trace_id": result["trace_id"], "answer": answer,
                 "sources": result["sources"], "models": names, "error": result.get("error"),
+                "revised": result.get("revised", False),
+                "cost_by_step": result.get("cost_by_step", {}),
             }  # fmt: skip
             with out.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
             yield row
 
 
+STEPS = ("plan", "analyst", "researcher", "summarizer", "draft", "verifier", "revise")
+
+
 def summary(results: list[dict]) -> list[dict]:
-    """One line per configuration: SQL right, text score, cited, cost and time."""
+    """One line per configuration: SQL right, text score, cited, revised, cost and time."""
     out = []
     for name in dict.fromkeys(r["config"] for r in results):
         done = [r for r in results if r["config"] == name and "score" in r]
@@ -138,16 +143,36 @@ def summary(results: list[dict]) -> list[dict]:
             continue
         sql = [r["score"] for r in done if r["kind"] == "sql"]
         text = [r["score"] for r in done if r["kind"] == "text"]
+        cost = sum(r["cost_usd"] for r in done)
         out.append({
             "config": name,
             "answered": len(done),
             "sql_right": f"{sum(sql):.0f}/{len(sql)}",
             "text_score": round(sum(text) / len(text), 2) if text else None,
             "cited": f"{sum(r['cited'] for r in done)}/{len(done)}",
-            "cost_usd": round(sum(r["cost_usd"] for r in done), 3),
-            "usd_per_q": round(sum(r["cost_usd"] for r in done) / len(done), 3),
+            "revised": f"{sum(bool(r.get('revised')) for r in done)}/{len(done)}",
+            "cost_usd": round(cost, 3),
+            "usd_per_q": round(cost / len(done), 3),
             "s_per_q": round(sum(r["seconds"] for r in done) / len(done), 1),
         })  # fmt: skip
+    return out
+
+
+def cost_shares(results: list[dict]) -> list[dict]:
+    """Per configuration, the share of the cost each step or agent took (planning, specialists,
+    drafting, checking, revising): where an optimization pays."""
+    out = []
+    for name in dict.fromkeys(r["config"] for r in results):
+        totals: dict[str, float] = {}
+        for r in results:
+            if r["config"] == name:
+                for step, usd in (r.get("cost_by_step") or {}).items():
+                    totals[step] = totals.get(step, 0.0) + usd
+        whole = sum(totals.values())
+        if whole:
+            out.append(
+                {"config": name} | {s: f"{100 * totals.get(s, 0) / whole:.0f}%" for s in STEPS}
+            )
     return out
 
 
@@ -168,4 +193,7 @@ def markdown(results: list[dict]) -> str:
          "missed": ", ".join(r["missed"])}
         for r in sorted(results, key=lambda r: (r["id"], r["config"])) if "score" in r
     ]  # fmt: skip
-    return "\n".join(table(summary(results)) + [""] + table(per_question)) + "\n"
+    parts = (
+        table(summary(results)) + [""] + table(cost_shares(results)) + [""] + table(per_question)
+    )
+    return "\n".join(parts) + "\n"

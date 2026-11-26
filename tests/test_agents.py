@@ -27,6 +27,13 @@ PLAN = {"clarification": "", "tasks": [
 ]}  # fmt: skip
 
 
+def text_of(content: Any) -> str:
+    """A message's text, also when it is a list of content blocks (cached prefixes)."""
+    if isinstance(content, str):
+        return content
+    return "\n\n".join(b["text"] for b in content if b.get("type") == "text")
+
+
 class Script:
     """Answers like each agent would. `verdicts` scripts the verifier ("pass", "unsupported" or
     "missing"); `cite` is the chunk id the researcher claims (None: the first it found);
@@ -57,7 +64,7 @@ class Script:
 
     def reply(self, agent: str, messages: list) -> AIMessage:
         system = messages[0].content if messages else ""
-        human = next(m.content for m in messages if m.type == "human")
+        human = next(text_of(m.content) for m in messages if m.type == "human")
         results = [m for m in messages if isinstance(m, ToolMessage)]
         planning = agent == "orchestrator" and "planning" in system
         with self.lock:
@@ -213,6 +220,9 @@ def test_full_graph(data):  # noqa: F811
     u = result["usage"]
     assert u["steps"] == 5 and u["calls"] == 9  # plan 2, analyst 2, researcher 2, draft, verifier 2
     assert u["cost_usd"] == pytest.approx(9 * (1000 * 2 + 100 * 10) / 1e6)
+    by_step = result["cost_by_step"]  # where the money went
+    assert set(by_step) == {"plan", "analyst", "researcher", "draft", "verifier"}
+    assert sum(by_step.values()) == pytest.approx(u["cost_usd"]) and not result["revised"]
     assert len(result["trace_id"]) == 32
 
 
@@ -236,7 +246,12 @@ def test_sources_are_only_the_cited_ones(data):  # noqa: F811
 
 
 def test_unsupported_claims_are_revised_without_searching(data):  # noqa: F811
-    nodes, result, _ = run_graph(Script(verdicts=["unsupported"]))
+    script = Script(verdicts=["unsupported"])
+    nodes, result, _ = run_graph(script)
+    draft, revise = [p for a, p in script.prompts if a == "orchestrator"]
+    shared = draft.split("Question:")[0]  # findings + sources: the cached prefix of both
+    assert "<findings>" in shared and revise.startswith(shared)
+    assert result["revised"] and result["cost_by_step"]["revise"] > 0
     assert nodes == CYCLE + ["verify", "revise", "finish"]
     assert result["answer"].startswith("There are 3 people [1].")
     assert "Removed the 4." in result["answer"] and "Not fully verified" not in result["answer"]

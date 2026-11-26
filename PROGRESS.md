@@ -380,6 +380,10 @@
   - The configurations differ by one or two answers out of 26: noise at this size. luna-summarizer was weakest (construction waste 0, judicial reform 0.67, plenum follow-up 0.5).
   - Grading bugs found in the answers: reference queries with two columns named `count` kept only one value (24 vs 25, health vs education); the eval passed `knessets: [25, 26]` as a user filter, so no configuration could query the 24th Knesset (only luna-summarizer's analyst ignored it and answered 573 vs 102). Both fixed; the earlier SQL scores for those two questions were too generous.
   - Tool-call errors seen: `metric`/`top_participants` with search-style filter names (`committee_ids`, `knessets`) in every configuration — now accepted as aliases; `share_of_words` with a `query` filter and `search_text` with `parent_type` — the errors now say what to use instead. Four parallel `search_text` calls with a committee filter timed out together once (open).
+  - Three changes after it (the user's choice):
+    1. The draft prompt names the reasons the verifier removed claims (added titles, roles, party labels or dates; generalizations; joined findings) and asks for each claim in its finding's own words: in the run about 11 of 13 baseline text answers were revised by Sonnet.
+    2. Draft and revise start with the same findings and sources, cached on the draft call (a `cache_control` block; Claude only), so the revision reads them at the cache price.
+    3. Cost per step and agent (plan, analyst, researcher, summarizer, draft, verifier, revise) in every answer (`cost_by_step`), the revision rate and the cost shares per configuration in the eval report.
   - `bill_votes` labels the last vote `final` (it had read "סעיף 9" in its subject and said "second", so answers doubted the final vote).
 - Tests: 122.
 
