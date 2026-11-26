@@ -21,7 +21,9 @@ Rules:
   ids, Knesset numbers and dates, and what to return.
 - If the question is too vague to plan (no subject, unclear person), set `clarification` to
   one short question for the user and return no tasks. Otherwise leave it empty.
-- At most 4 tasks.
+- At most 4 tasks. Route each part with the semantic layer below; name the metric or tool in
+  the instruction when one fits (e.g. "metric bills_passed by initiator", "bill_votes",
+  "top_participants by organization").
 
 Examples:
 - "כמה הצעות חוק עברו בכנסת ה-25?" → t1 analyst: count passed bills in Knesset 25 (marts.fct_bill, is_passed).

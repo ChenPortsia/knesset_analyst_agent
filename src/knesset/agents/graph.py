@@ -154,24 +154,55 @@ def numbers(text: str) -> set[str]:
     return out
 
 
-def sql_numbers_check(question: str, answer: str, sources: list[dict]) -> bool:
-    """For an answer whose sources are all SQL: re-run each query and check that every number
-    in the answer appears in the results (or in the question, or is a small rank)."""
-    if not sources or any(s["type"] != "sql" for s in sources):
-        return False
+def source_numbers(sources: list[dict], passages: dict[str, str]) -> set[str] | None:
+    """Every number the sources hold: SQL re-run now, `compute` results, cited passages.
+    None when a query fails to re-run (then the verifier judges)."""
     found: set[str] = set()
-    try:
-        for s in sources:
-            for row in sql_query(s["ref"])["rows"]:
-                for cell in row:
-                    found |= numbers(str(cell))
-                    if isinstance(cell, float):
-                        found |= {f"{cell:.1f}".removesuffix(".0"), str(round(cell))}
-    except Exception:  # noqa: BLE001 — a query that fails to re-run is the verifier's to judge
+    for s in sources:
+        if s["type"] == "calc":
+            found |= numbers(s["ref"])
+        elif s["type"] == "chunk":
+            found |= numbers(passages.get(str(s["ref"]), ""))
+        elif s["type"] == "sql":
+            try:
+                rows = sql_query(s["ref"])["rows"]
+            except Exception:  # noqa: BLE001 — the verifier's to judge
+                return None
+            for cell in (c for row in rows for c in row):
+                found |= numbers(str(cell))
+                if isinstance(cell, float):
+                    found |= {f"{cell:.1f}".removesuffix(".0"), str(round(cell))}
+    return found
+
+
+def numbers_check(
+    question: str, answer: str, sources: list[dict], passages: dict[str, str]
+) -> bool:
+    """Every number in the answer appears in its sources (or the question, or is a rank ≤ 20)."""
+    found = source_numbers(sources, passages)
+    if found is None:
         return False
     claimed = numbers(answer)
-    allowed = found | numbers(question) | {str(i) for i in range(21)}
-    return bool(claimed) and claimed <= allowed
+    return bool(claimed) and claimed <= found | numbers(question) | {str(i) for i in range(21)}
+
+
+NUMBERS_CHECKED = (
+    "\n\nEvery number in the draft appears in its sources (checked in code): check names, "
+    "dates, quotes and attributions; do not re-run the SQL."
+)
+
+
+def passages_of(results: list[dict]) -> dict[str, str]:
+    """chunk id → speaker, date and text of every chunk the specialists' tools returned."""
+    out: dict[str, str] = {}
+    for r in results:
+        for a in r.get("artifacts", []):
+            output = a.get("output") if isinstance(a.get("output"), dict) else {}
+            for doc in output.get("results", []):
+                for c in doc.get("chunks", []):
+                    head = f"{c.get('speaker') or ''} ({doc.get('date') or ''})".strip()
+                    out[str(c["chunk_id"])] = f"{head}: {c['text']}"
+    return out
 
 
 # ---------------------------------------------------------------- memory (Store)
@@ -354,16 +385,27 @@ def after_draft(state: State) -> str:
 
 def verify(state: State, runtime: Runtime[Context]) -> Command[Literal["finish", "revise", "plan"]]:
     ctx, sources = runtime.context, state["sources"]
-    if sql_numbers_check(state["question"], state["draft"]["answer"], sources):
+    question, answer = state["question"], state["draft"]["answer"]
+    passages = passages_of(state["results"])
+    numbers_ok = numbers_check(question, answer, sources, passages)
+    if numbers_ok and all(s["type"] in ("sql", "calc") for s in sources):
         verdict = {"status": "pass", "issues": [], "checked": "sql in code"}
         return Command(goto="finish", update={"verdict": verdict})
+    cited = [s for s in sources if s["type"] == "chunk" and str(s["ref"]) in passages]
+    context = (f"Question: {question}\n\nDraft:\n{answer}\n\n"
+               f"Findings:\n{findings_text(state['results'], sources)}\n\n"
+               f"Sources:\n{sources_text(sources)}")  # fmt: skip
+    if cited:  # already read: the verifier needs get_chunks only for the others
+        context += "\n\nCited passages (already read):\n" + "\n".join(
+            f"[{s['n']}] chunk {s['ref']} — {passages[str(s['ref'])][:1500]}" for s in cited[:10]
+        )
+    if numbers_ok:
+        context += NUMBERS_CHECKED
     task = AgentTask(
         task_id="verify",
         agent="verifier",
         instruction="Check this draft answer against its sources.",
-        context=f"Question: {state['question']}\n\nDraft:\n{state['draft']['answer']}\n\n"
-        f"Findings:\n{findings_text(state['results'], sources)}\n\n"
-        f"Sources:\n{sources_text(sources)}",
+        context=context,
         max_cost_usd=ctx.budget.left_usd,
     )
     with tracer().start_as_current_span("handoff.verifier"):

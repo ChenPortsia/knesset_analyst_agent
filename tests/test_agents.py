@@ -204,6 +204,9 @@ def test_full_graph(data):  # noqa: F811
     assert {"agent": "analyst", "task": "t1", "status": "started"} in custom
     tools = {e["name"] for n, e in events if n == "tool"}
     assert tools >= {"resolve_entity", "sql_query", "search_text", "rerun_sql"}
+    # the verifier gets the passages already read, and knows the numbers were checked in code
+    (checked,) = {p for a, p in script.prompts if a == "verifier"}
+    assert "Cited passages (already read)" in checked and "checked in code" in checked
     # the researcher depends on the analyst: it got the analyst's findings as context
     researcher = {p for a, p in script.prompts if a == "researcher"}
     assert len(researcher) == 1 and "3 people" in researcher.pop()
@@ -258,6 +261,14 @@ def test_sql_only_answer_is_checked_in_code(data):  # noqa: F811
     script = Script(plan=plan, answer="There are 40 people [1].", verdicts=["unsupported"])
     nodes, _, _ = run_graph(script)
     assert any(a == "verifier" for a, _ in script.prompts) and "revise" in nodes
+
+
+def test_numbers_check_reads_sql_calc_and_passages():
+    calc = {"type": "calc", "ref": "100 * a / b with a=1, b=8 = 12.5"}
+    chunk = {"type": "chunk", "ref": "7"}
+    assert graph.numbers_check("q", "12.5% [1]", [calc], {})
+    assert graph.numbers_check("q", "7.5 million tons [1]", [chunk], {"7": "about 7.5 million"})
+    assert not graph.numbers_check("q", "90 million tons [1]", [chunk], {"7": "about 7.5"})
 
 
 def test_numbers_normalize():

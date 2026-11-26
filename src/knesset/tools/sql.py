@@ -1,13 +1,16 @@
 """Analyst tools: the marts schema, read-only SQL, and chart specs."""
 
+import difflib
 import re
 from functools import cache
 from pathlib import Path
 from typing import Any
 
+import psycopg
 import yaml
 
 from knesset.db import connect
+from knesset.semantic import layer
 from knesset.tools.common import jsonable, tool
 
 SCHEMA = Path(__file__).resolve().parents[3] / "dbt" / "models" / "marts" / "schema.yml"
@@ -52,13 +55,50 @@ def check_select(sql: str) -> str:
     return sql
 
 
+def columns_of(tables: list[str]) -> dict[str, list[str]]:
+    """The columns of schema-qualified tables, from the database."""
+    with connect("agent_ro") as conn:
+        rows = conn.execute(
+            """select table_schema || '.' || table_name, column_name
+               from information_schema.columns
+               where table_schema || '.' || table_name = any(%s) order by ordinal_position""",
+            (tables,),
+        ).fetchall()
+    out: dict[str, list[str]] = {}
+    for table, column in rows:
+        out.setdefault(table, []).append(column)
+    return out
+
+
+def hint(error: Exception, sql: str) -> str:
+    """The database error, with the real columns of the tables the query names and the closest
+    match: one corrected query instead of a describe_schema round trip."""
+    msg = str(error).splitlines()[0]
+    tables = sorted(set(re.findall(r"\b((?:marts|text)\.\w+)", sql)))
+    if isinstance(error, psycopg.errors.UndefinedTable) or not tables:
+        names = ", ".join(f"marts.{m['name']}" for m in models())
+        return f"{msg}. Tables: {names}"
+    cols = columns_of(tables)
+    bad = re.search(r'column "?(?:\w+\.)?(\w+)"? does not exist', msg)
+    every = [c for cs in cols.values() for c in cs]
+    close = difflib.get_close_matches(bad.group(1), every, n=3) if bad else []
+    out = msg + "".join(f"\n{t}: {', '.join(cs)}" for t, cs in cols.items())
+    for e in layer()["entities"].values():  # the semantic layer's notes on these tables
+        if e["table"] in tables:
+            out += "".join(f"\nnote ({e['table']}): {n}" for n in e.get("notes", []))
+    return out + (f"\nDid you mean: {', '.join(close)}?" if close else "")
+
+
 @tool
 def sql_query(sql: str) -> dict:
     """Run one read-only SELECT on the marts (and text) schemas as agent_ro: 15 s timeout, at
     most 200 rows returned. Returns columns, rows and whether the result was cut."""
     sql = check_select(sql)
     with connect("agent_ro") as conn, conn.cursor() as cur:
-        cur.execute(f"select * from ({sql}) as q limit {ROW_LIMIT + 1}")
+        try:
+            cur.execute(f"select * from ({sql}) as q limit {ROW_LIMIT + 1}")
+        except (psycopg.errors.UndefinedColumn, psycopg.errors.UndefinedTable) as e:
+            raise ValueError(hint(e, sql)) from e
         cols = [c.name for c in cur.description]
         data = [jsonable(list(r)) for r in cur.fetchall()]
     return {

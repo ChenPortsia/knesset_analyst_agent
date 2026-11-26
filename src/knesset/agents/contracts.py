@@ -9,8 +9,8 @@ AgentName = Literal["analyst", "researcher", "summarizer", "verifier"]
 
 
 class Evidence(BaseModel):
-    type: Literal["chunk", "sql", "doc"]
-    ref: str  # chunk id, SQL text or document id
+    type: Literal["chunk", "sql", "doc", "calc"]
+    ref: str  # chunk id, SQL text, document id or a `compute` calculation
     url: str | None = None
 
 

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from knesset.agents.contracts import AgentResult, AgentTask, Evidence, Finding, Usage
 from knesset.agents.llm import Budget, LimitReached
 from knesset.agents.models import BudgetCallback, ModelFactory, chat_model, model_name, usage_of
+from knesset.semantic import brief
 from knesset.tools.lc import tools_for
 from knesset.tracing import tracer
 
@@ -46,11 +47,9 @@ class Verdict(BaseModel):
 
 
 def prompt(name: str) -> str:
-    return (
-        (PROMPTS / "common.md").read_text(encoding="utf-8")
-        + "\n\n"
-        + (PROMPTS / f"{name}.md").read_text(encoding="utf-8")
-    )
+    """Shared rules, the agent's own prompt, and its part of the semantic layer."""
+    parts = [(PROMPTS / f).read_text(encoding="utf-8") for f in ("common.md", f"{name}.md")]
+    return "\n\n".join(parts + [brief(name)]).strip()
 
 
 def subgraph(agent: str, model: Any) -> Any:
@@ -117,7 +116,7 @@ def seen_refs(artifacts: list[dict]) -> dict[tuple[str, str], str | None]:
 
 
 def norm(kind: str, ref: str) -> str:
-    return re.sub(r"\s+", " ", ref).strip().lower() if kind == "sql" else ref.strip()
+    return re.sub(r"\s+", " ", ref).strip().lower() if kind in ("sql", "calc") else ref.strip()
 
 
 def keep_seen(findings: list[Finding], seen: dict[tuple[str, str], str | None]) -> list[Finding]:

@@ -353,6 +353,15 @@
 - 10 harder questions (26 in all): a comparison across Knessets, multi-step SQL (top private-bill initiator, busiest month), two follow-ups asked in the same thread (`before`), cross-source text questions (Finance chair and the 2025 budget, coalition vs opposition on the judicial reform, Smotrich in 2025) and an unanswerable one (graded on an honest "not found").
 - Tests: 111.
 
+**Semantic layer and tools (26 Nov 2026, the user's request)**
+- `src/knesset/semantic.yaml`: glossary (11 question words), 14 entities with their pitfalls, 9 governed metrics with dimensions (bills, bills_passed, committee_sessions, plenum_sessions, votes, mk_votes, queries, words_spoken, attendance; month and year for all), 8 routes. `semantic.brief(agent)` puts each agent's part in its prompt (analyst ≈ 5.9k chars, orchestrator ≈ 2.6k, researcher ≈ 3.4k).
+- Tools: `metric` (compiled from the layer; cites its SQL), `bill_votes` (votes with inferred reading stage; final vote by faction), `top_participants` (attendance lists), `compute` (safe arithmetic; `calc` evidence the code check reads).
+- `sql_query` errors on a wrong column or table list the real columns, the closest match and the layer's notes for those tables.
+- Verify: numbers are checked in code against SQL, `calc` results and cited passages; an answer with only SQL/calc sources passes without the verifier, and otherwise the verifier is told the numbers were checked and gets the passages already read (no re-fetch).
+- Tests check the layer against the schema: every column a metric uses exists in the dbt docs or the migrations, and every metric × dimension runs on the test database and re-runs from its cited SQL.
+- Not yet measured on real models: the eval (26 questions, ≈ $1.2) against the Haiku-specialists numbers above.
+- Tests: 120.
+
 ## Changes to the plan
 
 - 24 Nov 2026, the user: the per-question agent timeout is 150 s (PLAN §7 said 90 s): text questions finished at 91–98 s in the first notebook-07 run.

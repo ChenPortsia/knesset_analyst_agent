@@ -1,0 +1,232 @@
+# The semantic layer: what the data means, for the agents (PLAN.md §7).
+# - glossary: question words → their meaning in the data
+# - entities: the tables, their keys and the facts an agent needs to query them correctly
+# - metrics: governed counts and sums, compiled to SQL by the `metric` tool (knesset/semantic.py)
+# - routes: which kind of question goes to which agent and tool
+# Each agent's prompt gets the parts it needs (semantic.brief). Keep entries short and true.
+
+glossary:
+  - terms: [עברה, עברו, התקבלה כחוק, passed, became law]
+    means: a bill with `is_passed` (passed its third reading, or published in Reshumot). Metric `bills_passed`.
+  - terms: [הצעה פרטית, private bill, private member's bill]
+    means: "`subtype_desc = 'פרטית'`; government bills 'ממשלתית', committee bills 'ועדה'."
+  - terms: [קריאה טרומית, ראשונה, שנייה, שלישית, reading]
+    means: the plenum votes on a bill; the third reading is the final vote. Use `bill_votes`.
+  - terms: [ישיבה, דיון, session, meeting]
+    means: a committee session (`fct_committee_session`) or a plenum session (`fct_plenum_session`).
+  - terms: [שאילתה, query, parliamentary question]
+    means: an MK's question to a ministry (`fct_query`; `person_id` is the MK who asked).
+  - terms: [ח"כ, חבר כנסת, MK]
+    means: a person in `dim_person`; party membership over time is in `fct_person_position` (faction).
+  - terms: [סיעה, מפלגה, faction, party]
+    means: a Knesset faction; a person's faction changes over time (positions with dates).
+  - terms: [יו"ר, chair, שר, minister]
+    means: a role in `fct_person_position` (`position_desc`, start and finish dates).
+  - terms: [זמן, כמה זמן, time spent, how much of the debate]
+    means: spoken words, not minutes (protocols have no timestamps). Metric `words_spoken` / `share_of_words`.
+  - terms: [ארגונים שהופיעו, מוזמנים, נוכחים, attended, organizations that appeared]
+    means: the protocols' attendance lists (`text.participants`), not names mentioned in speech.
+  - terms: [כנסת ה-25, the 25th Knesset]
+    means: "`knesset_num = 25` (Nov 2022 – ); the 26th is the next one."
+
+entities:
+  bill:
+    table: marts.fct_bill
+    key: bill_id
+    columns: knesset_num, bill_name, subtype_desc (ממשלתית/פרטית/ועדה), status_desc, is_passed,
+      publication_date, committee_id (the committee that prepared it), initiator_ids and joiner_ids
+      (arrays of person ids)
+    notes:
+      - "Initiators: `<id> = any(initiator_ids)`, or `cross join unnest(initiator_ids) as i(person_id)` to rank them."
+      - Session items and text sections refer to bills as item_type_id 2, item_id = bill_id.
+  vote:
+    table: marts.fct_vote
+    key: vote_id
+    columns: vote_datetime, plenum_session_id, item_id (= bill_id for a bill's votes), ordinal,
+      vote_title, vote_subject, vote_status_desc, n_for, n_against, n_abstain
+    notes:
+      - "No knesset_num: join `marts.fct_plenum_session using (plenum_session_id)`."
+      - "A big bill (the budget) has a vote per section and reservation (second reading) and one final vote; use `bill_votes`."
+  vote_result:
+    table: marts.fct_vote_result
+    key: vote_result_id
+    columns: vote_id, person_id, result_desc (בעד/נגד/נמנע/נוכח), faction_id, faction_name (at the
+      time of the vote), item_id, vote_datetime
+  committee_session:
+    table: marts.fct_committee_session
+    key: committee_session_id
+    columns: knesset_num, committee_id, committee_name, type_desc, status_desc, start_date, session_url
+    notes:
+      - A committee has a new committee_id in each Knesset; filter by name or resolve the id per Knesset.
+      - Counts include every status unless you filter `status_desc`.
+  plenum_session:
+    table: marts.fct_plenum_session
+    key: plenum_session_id
+    columns: knesset_num, session_name, start_date, n_items, n_votes
+  query:
+    table: marts.fct_query
+    key: query_id
+    columns: knesset_num, query_name, type_desc, status_desc, person_id (the MK who asked),
+      ministry_id, ministry_name, submit_date
+  person:
+    table: marts.dim_person
+    key: person_id
+    columns: full_name, first_name, last_name, name_variants, mk_knessets
+  position:
+    table: marts.fct_person_position
+    key: person_id + start_date
+    columns: position_desc, faction_id, faction_name, committee_id, ministry_id, ministry_name,
+      government_num, start_date, finish_date, is_current
+    notes:
+      - "Committee chairs: `position_desc like '%יו\"ר%'` with committee_id; ministers: ministry_id is not null."
+  session_item:
+    table: marts.fct_session_item
+    key: session_item_key
+    columns: session_type (committee/plenum), session_id, item_type_id, item_id, item_name
+    notes:
+      - Which sessions discussed a bill or query (join fct_committee_session on committee_session_id = session_id).
+  document:
+    table: text.documents
+    key: doc_id
+    columns: parent_type (committee_session, plenum_session, bill, query, …), knesset_num,
+      committee_id (null for the plenum), doc_date, group_type (document type label), url
+  chunk:
+    table: text.chunks
+    key: chunk_id
+    columns: doc_id, ord, text, speaker_raw, person_id, meta (kind header/turns)
+    notes:
+      - Search chunks with `search_text`, not SQL. Exclude `meta->>'kind' = 'header'` when counting speech.
+  section:
+    table: text.sections + text.section_speakers
+    key: doc_id + ord
+    columns: "sections: title, item_type_id, item_id, n_words; section_speakers: speaker_raw, person_id, role, n_words, n_turns"
+  participant:
+    table: text.participants
+    key: doc_id + ord
+    columns: name, grp (list heading, e.g. חברי הוועדה, מוזמנים), description, organization, person_id
+  mention:
+    table: text.chunk_entities
+    key: chunk_id + type + surface
+    columns: type (person, org, place, …), surface, normalized, source (speaker, ner)
+    notes:
+      - NER mentions are names said in the text, not attendance.
+
+# Metrics: `from` (with aliases), `value`, optional `where`, `date` (for month/year and the
+# date_from / date_to filters) and `dims`: name → SQL expression, or {expr, key, join}.
+# A dimension groups the result (`by`) and filters it (`filters: {dim: [values or ids]}`);
+# with a `key`, filters take ids. Every metric also has the dims month and year.
+metrics:
+  bills:
+    describe: Bills (proposals), any status
+    from: marts.fct_bill b
+    value: count(*)
+    dims: &bill_dims
+      knesset: b.knesset_num
+      subtype: b.subtype_desc
+      status: b.status_desc
+      committee: {expr: cm.committee_name, key: b.committee_id,
+                  join: left join marts.dim_committee cm on cm.committee_id = b.committee_id}
+      initiator: {expr: p.full_name, key: p.person_id,
+                  join: cross join unnest(b.initiator_ids) as i(person_id) join marts.dim_person p on p.person_id = i.person_id}
+  bills_passed:
+    describe: Bills that passed (third reading or published)
+    from: marts.fct_bill b
+    value: count(*)
+    where: b.is_passed
+    date: b.publication_date
+    dims: *bill_dims
+  committee_sessions:
+    describe: Committee sessions
+    from: marts.fct_committee_session s
+    value: count(*)
+    date: s.start_date
+    dims:
+      knesset: s.knesset_num
+      committee: {expr: s.committee_name, key: s.committee_id}
+      status: s.status_desc
+      type: s.type_desc
+  plenum_sessions:
+    describe: Plenum sessions
+    from: marts.fct_plenum_session ps
+    value: count(*)
+    date: ps.start_date
+    dims:
+      knesset: ps.knesset_num
+  votes:
+    describe: Plenum votes
+    from: marts.fct_vote v join marts.fct_plenum_session ps using (plenum_session_id)
+    value: count(*)
+    date: v.vote_datetime
+    dims:
+      knesset: ps.knesset_num
+      bill: {expr: v.item_id, key: v.item_id}
+      status: v.vote_status_desc
+  mk_votes:
+    describe: MKs' individual votes (for, against, abstain, present)
+    from: marts.fct_vote_result r join marts.fct_plenum_session ps using (plenum_session_id)
+    value: count(*)
+    date: r.vote_datetime
+    dims:
+      knesset: ps.knesset_num
+      vote: r.vote_id
+      bill: {expr: r.item_id, key: r.item_id}
+      result: r.result_desc
+      faction: {expr: r.faction_name, key: r.faction_id}
+      person: {expr: p.full_name, key: r.person_id,
+               join: join marts.dim_person p on p.person_id = r.person_id}
+  queries:
+    describe: Parliamentary queries
+    from: marts.fct_query q
+    value: count(*)
+    date: q.submit_date
+    dims:
+      knesset: q.knesset_num
+      ministry: {expr: q.ministry_name, key: q.ministry_id}
+      asker: {expr: p.full_name, key: q.person_id,
+              join: left join marts.dim_person p on p.person_id = q.person_id}
+      type: q.type_desc
+      status: q.status_desc
+  words_spoken:
+    describe: Words spoken in protocols (a proxy for time; no timestamps exist)
+    from: text.section_speakers sp join text.sections s using (doc_id, ord) join text.documents d using (doc_id)
+    value: sum(sp.n_words)
+    date: d.doc_date
+    dims:
+      knesset: d.knesset_num
+      committee: {expr: "coalesce(cm.committee_name, '(מליאה)')", key: d.committee_id,
+                  join: left join marts.dim_committee cm on cm.committee_id = d.committee_id}
+      speaker: {expr: "coalesce(p.full_name, sp.speaker_raw)", key: sp.person_id,
+                join: left join marts.dim_person p on p.person_id = sp.person_id}
+      section: s.title
+      bill: {expr: s.title, key: "case when s.item_type_id = 2 then s.item_id end"}
+  attendance:
+    describe: Sessions attended, from the protocols' attendance lists
+    from: text.participants pa join text.documents d using (doc_id)
+    value: count(distinct pa.doc_id)
+    date: d.doc_date
+    dims:
+      knesset: d.knesset_num
+      committee: {expr: "coalesce(cm.committee_name, '(מליאה)')", key: d.committee_id,
+                  join: left join marts.dim_committee cm on cm.committee_id = d.committee_id}
+      organization: pa.organization
+      person: {expr: "coalesce(p.full_name, pa.name)", key: pa.person_id,
+               join: left join marts.dim_person p on p.person_id = pa.person_id}
+      group: pa.grp
+
+routes:
+  - ask: how many / which most / trend over time — bills, sessions, queries, votes, MKs' votes
+    use: analyst → `metric` (sql_query only when no metric fits)
+  - ask: how a bill was voted (totals, by faction); which vote was the final one
+    use: analyst → `bill_votes`
+  - ask: who held a role (committee chair, minister) and when
+    use: analyst → sql_query on marts.fct_person_position
+  - ask: what was said, by whom, about what
+    use: researcher → `search_text` (summarizer for the main arguments across many debates)
+  - ask: who spoke most about a topic
+    use: researcher → `facets` by speaker with the topic as query
+  - ask: how much of the time (words) a topic, speaker, faction or committee took
+    use: researcher → `share_of_words`
+  - ask: which organizations or people attended / appeared most
+    use: researcher → `top_participants` (attendance lists), not mentions in speech
+  - ask: a percent, difference, ratio or sum of numbers already found
+    use: "`compute`, so the number can be checked in code"

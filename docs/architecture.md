@@ -36,7 +36,8 @@ flowchart TB
     subgraph Tools["tools/ (plain typed functions, JSON + evidence)"]
       T1[search_text · get_document · get_chunks]
       T2[facets · share_of_words · get_document_summary]
-      T3[sql_query · describe_schema · make_chart]
+      T3[metric · bill_votes · sql_query · describe_schema · make_chart]
+      T5[top_participants · compute]
       T4[resolve_entity · rerun_sql]
     end
     subgraph Retrieval["search.py"]
@@ -51,6 +52,27 @@ flowchart TB
     Tools --> M
 ```
 
+## The semantic layer
+
+`src/knesset/semantic.yaml` says what the data means, once, for every agent:
+
+| Part | What it holds | Who reads it |
+|---|---|---|
+| Glossary | question words → their meaning in the data ("עברו" = `is_passed`, "כמה זמן" = spoken words, "ארגונים שהופיעו" = attendance lists) | every agent |
+| Entities | each table: key, columns, pitfalls (`fct_vote` has no `knesset_num`; committee ids change per Knesset) | analyst; text tables for researcher and summarizer |
+| Metrics | governed counts and sums (`bills_passed`, `committee_sessions`, `queries`, `mk_votes`, `words_spoken`, `attendance`, …) with their dimensions | analyst, through the `metric` tool |
+| Routes | which kind of question goes to which agent and tool | orchestrator, researcher |
+
+`knesset/semantic.py` puts each agent's part into its prompt and compiles a metric with its
+dimensions and filters into SQL; that SQL is the evidence the verifier (or the code check)
+re-runs. SQL errors on a wrong column list the table's real columns, the closest match and the
+layer's notes on that table.
+
+Tools built on it: `metric`, `bill_votes` (every vote on a bill with its reading stage, and the
+final vote by faction), `top_participants` (attendance lists), `compute` (arithmetic the code
+checks). The verifier gets the passages the specialists already read, and is told when every
+number was already checked in code.
+
 ## What runs where
 
 | Part | Technology |
@@ -58,7 +80,7 @@ flowchart TB
 | Orchestrator graph | **LangGraph** `StateGraph`: start → plan → dispatch ⇉ specialists → draft → verify → revise / finish |
 | Specialists | **LangChain `create_agent`** subgraphs: their tools, a strict output schema (`ProviderStrategy`), a model-call limit middleware |
 | Models | **`ChatAnthropic`** (`agents/models.py`) with effort and server-side refusal fallback (Opus/Sonnet); any LangChain chat model plugs in through the factory in the runtime context |
-| Models (`.env`) | Orchestrator: Claude Sonnet 5.5 · Analyst, researcher: Sonnet 5.5 · Summarizer: Opus 5.5 · Verifier: Haiku 5.5 |
+| Models (`.env`) | Orchestrator: Claude Sonnet 5.5 · Analyst, researcher, summarizer, verifier: Haiku 5.5 (eval matrix, 25 Nov 2026) |
 | Contract | `AgentTask` → `AgentResult` (pydantic, JSON) through `AgentClient` — in process now, A2A in Phase 8 |
 | Tools | Plain Python functions (`tools/`), each returning JSON with an `evidence` list; `langchain-core` builds their schemas |
 | Database | PostgreSQL 17 + pgvector (Docker), read-only role `agent_ro` for agents |
@@ -94,6 +116,7 @@ flowchart TB
 | Budget and limits | `src/knesset/agents/llm.py` |
 | Specialists and evidence checks | `src/knesset/agents/specialist.py` |
 | Tools per agent | `src/knesset/tools/lc.py` (`AGENT_TOOLS`) |
+| **Semantic layer** | `src/knesset/semantic.yaml` (glossary, entities, metrics, routes); `knesset/semantic.py` |
 | Models and limits | `.env` (`AGENT_*_MODEL`, `AGENT_MAX_COST_USD`, `AGENT_MAX_STEPS`, `AGENT_TIMEOUT_S`) |
 
 ## Safeguards against wrong answers
