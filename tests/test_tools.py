@@ -176,9 +176,9 @@ def test_tool_schemas_have_no_open_objects():
     from knesset.tools.lc import AGENT_TOOLS, as_tool
 
     for fn in {f for tools in AGENT_TOOLS.values() for f in tools}:
-        props = convert_to_openai_tool(as_tool(fn))["function"]["parameters"]["properties"]
-        for name, p in props.items():
-            assert p.get("additionalProperties") is not True, f"{fn.__name__}.{name}"
+        params = convert_to_openai_tool(as_tool(fn))["function"]["parameters"]
+        for name in params.get("required", []):  # a required argument must not be an open map
+            assert "additionalProperties" not in params["properties"][name], f"{fn.__name__}.{name}"
 
 
 def test_verdict():

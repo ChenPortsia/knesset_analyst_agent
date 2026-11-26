@@ -130,13 +130,12 @@ def test_top_participants_counts_sessions(marts):
 
 
 def test_compute_is_safe_and_citable():
-    result = compute("100 * part / total", {"part": 371397, "total": 7940859})
+    result = compute("100 * 371,397 / 7940859")
     assert result["result"] == pytest.approx(4.677, abs=1e-4)
-    assert result["evidence"][0] == {"type": "calc", "ref": (
-        "100 * part / total with part=371397, total=7940859 = 4.677")}  # fmt: skip
-    for bad in ("__import__('os')", "total", "part ** 2"):
+    assert result["evidence"][0] == {"type": "calc", "ref": "100 * 371,397 / 7940859 = 4.677"}
+    for bad in ("__import__('os')", "total / 2", "2 ** 3", "1 +"):
         with pytest.raises(ValueError):
-            compute(bad, {"part": 1})
+            compute(bad)
 
 
 def test_sql_errors_list_the_real_columns(marts):

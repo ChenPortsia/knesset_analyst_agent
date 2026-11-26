@@ -264,7 +264,7 @@ def test_sql_only_answer_is_checked_in_code(data):  # noqa: F811
 
 
 def test_numbers_check_reads_sql_calc_and_passages():
-    calc = {"type": "calc", "ref": "100 * a / b with a=1, b=8 = 12.5"}
+    calc = {"type": "calc", "ref": "100 * 1 / 8 = 12.5"}
     chunk = {"type": "chunk", "ref": "7"}
     assert graph.numbers_check("q", "12.5% [1]", [calc], {})
     assert graph.numbers_check("q", "7.5 million tons [1]", [chunk], {"7": "about 7.5 million"})

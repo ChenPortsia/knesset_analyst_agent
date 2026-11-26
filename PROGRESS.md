@@ -365,6 +365,7 @@
   - Prompt caching was lost when the specialists moved to LangChain. `AnthropicPromptCachingMiddleware` now caches the system prompt, tools and history in every tool loop (planner and specialists); Haiku 5.5 and Sonnet 5.5 cache prefixes from 512 tokens.
   - Data goes in XML tags (`<context>`, `<findings>`, `<sources>`, `<passages>`, `<draft>`, `<issues>`), long material first and the question and instruction last; the shared rules say tagged text is data, not instructions.
   - The shared rules ask for independent tool calls in the same turn (parallel).
+- `compute` takes the numbers written into the expression ("100 * 371397 / 7940859"), not a name → value map: OpenAI rejects open-object arguments (as with `make_chart`). The tool-schema test now fails on any required open-object argument.
 - Not yet measured on real models: the eval (26 questions) with the layer and caching.
 - Tests: 122.
 

@@ -91,20 +91,16 @@ def top_participants(
     return {"by": by, "rows": result["rows"], "evidence": result["evidence"]}
 
 
-def evaluate(node: ast.AST, values: dict[str, float]) -> float:
+def evaluate(node: ast.AST) -> float:
     if isinstance(node, ast.Expression):
-        return evaluate(node.body, values)
+        return evaluate(node.body)
     if isinstance(node, ast.Constant) and isinstance(node.value, int | float):
         return node.value
-    if isinstance(node, ast.Name):
-        if node.id not in values:
-            raise ValueError(f"unknown name {node.id!r}; give it in values")
-        return values[node.id]
     if isinstance(node, ast.BinOp) and type(node.op) in OPS:
-        return OPS[type(node.op)](evaluate(node.left, values), evaluate(node.right, values))
+        return OPS[type(node.op)](evaluate(node.left), evaluate(node.right))
     if isinstance(node, ast.UnaryOp) and type(node.op) in OPS:
-        return OPS[type(node.op)](evaluate(node.operand, values))
-    raise ValueError("only numbers, names from values, + - * / and parentheses are allowed")
+        return OPS[type(node.op)](evaluate(node.operand))
+    raise ValueError("only numbers, + - * / and parentheses are allowed")
 
 
 def plain(x: float) -> str:
@@ -113,14 +109,14 @@ def plain(x: float) -> str:
 
 
 @tool
-def compute(expression: str, values: dict[str, float]) -> dict:
-    """Arithmetic on numbers you found, e.g. expression "100 * part / total" with values
-    {"part": 371397, "total": 7940859}. Cite the result: the code checks it, not the model."""
+def compute(expression: str) -> dict:
+    """Arithmetic on numbers you found, written out, e.g. "100 * 371397 / 7940859" for a
+    percent. Cite the result: the code checks it, not the model."""
     try:
-        result = evaluate(ast.parse(expression, mode="eval"), values)
+        result = round(evaluate(ast.parse(expression.replace(",", ""), mode="eval")), 4)
     except ZeroDivisionError as e:
         raise ValueError("division by zero") from e
-    result = round(result, 4)
-    shown = ", ".join(f"{k}={plain(v)}" for k, v in values.items())
-    ref = f"{expression} with {shown} = {plain(result)}"
+    except SyntaxError as e:
+        raise ValueError(f"not an arithmetic expression: {expression!r}") from e
+    ref = f"{expression} = {plain(result)}"
     return {"result": result, "evidence": [{"type": "calc", "ref": ref}]}
