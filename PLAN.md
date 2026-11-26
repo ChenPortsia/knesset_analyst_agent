@@ -171,7 +171,7 @@ knesset-data/
 
 ## 7. Multi-agent design
 
-A **supervisor (orchestrator) graph** in LangGraph delegates to specialist agents. Each specialist is its own subgraph with its own system prompt, its own tools, and its own model setting (`AGENT_<NAME>_MODEL`). Agents communicate only through the shared state and explicit handoffs, never by calling each other's tools.
+A **supervisor (orchestrator) graph** in LangGraph delegates to specialist agents. Each specialist is its own subgraph with its own system prompt, its own tools, and its own model setting (`src/knesset/agents/agents.yaml`). Agents communicate only through the shared state and explicit handoffs, never by calling each other's tools.
 
 ### Agents and their tools
 
