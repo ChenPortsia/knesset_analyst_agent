@@ -42,7 +42,8 @@ def test_openai_models(monkeypatch):
     from knesset.agents.models import chat_model
 
     luna = chat_model("analyst", "low", "gpt-6-luna")
-    assert type(luna).__name__ == "ChatOpenAI" and luna.reasoning_effort == "low"
+    assert type(luna).__name__ == "ChatOpenAI" and luna.reasoning == {"effort": "low"}
+    assert luna.use_responses_api  # function calling with reasoning needs the Responses API
 
 
 def test_matrix_runs_grades_and_reports(data, tmp_path, monkeypatch):  # noqa: F811

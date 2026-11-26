@@ -366,6 +366,7 @@
   - Data goes in XML tags (`<context>`, `<findings>`, `<sources>`, `<passages>`, `<draft>`, `<issues>`), long material first and the question and instruction last; the shared rules say tagged text is data, not instructions.
   - The shared rules ask for independent tool calls in the same turn (parallel).
 - `compute` takes the numbers written into the expression ("100 * 371397 / 7940859"), not a name → value map: OpenAI rejects open-object arguments (as with `make_chart`). The tool-schema test now fails on any required open-object argument.
+- OpenAI models run on the Responses API with `reasoning={"effort": …}` (OpenAI supports function calling with reasoning only there; LangChain already routed `gpt-6` tool calls there). Eval configs `luna-analyst` and `luna-summarizer` swap one role at a time.
 - Not yet measured on real models: the eval (26 questions) with the layer and caching.
 - Tests: 122.
 

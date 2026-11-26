@@ -18,3 +18,7 @@ luna-specialists:  # OpenAI; needs OPENAI_API_KEY in .env and the `openai` extra
   analyst: gpt-6-luna
   researcher: gpt-6-luna
   summarizer: gpt-6-luna
+luna-analyst:  # one role at a time: is Luna better at the structured (metric/SQL) work?
+  analyst: gpt-6-luna
+luna-summarizer:  # ... or at broad summaries over many passages?
+  summarizer: gpt-6-luna

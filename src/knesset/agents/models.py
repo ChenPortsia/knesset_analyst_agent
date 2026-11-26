@@ -52,9 +52,9 @@ def chat_model(agent: str, effort: str = "medium", name: str | None = None) -> B
         from langchain_openai import ChatOpenAI  # the `openai` extra
 
         key = settings().openai_api_key or None
-        return ChatOpenAI(
-            model=name, api_key=key, max_tokens=MAX_TOKENS, reasoning_effort=effort, max_retries=2
-        )
+        # Responses API: OpenAI supports function calling with reasoning only there
+        return ChatOpenAI(model=name, api_key=key, max_tokens=MAX_TOKENS, max_retries=2,
+                          use_responses_api=True, reasoning={"effort": effort})  # fmt: skip
     from langchain_anthropic import ChatAnthropic
 
     extra: dict[str, Any] = {}
