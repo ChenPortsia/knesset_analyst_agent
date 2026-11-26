@@ -1,0 +1,8 @@
+# The agents' models and effort — the one place to change them (eval matrix, 25 Nov 2026:
+# Haiku specialists, Sonnet orchestrator). Cost and step limits stay in .env (AGENT_MAX_*).
+# eval/configs.yaml can override a model per run. Effort: low | medium | high | xhigh | max.
+orchestrator: {model: claude-sonnet-5-5, effort: medium}  # plan, draft, revise
+analyst: {model: claude-haiku-5-5, effort: medium}
+researcher: {model: claude-haiku-5-5, effort: medium}
+summarizer: {model: claude-haiku-5-5, effort: medium}
+verifier: {model: claude-haiku-5-5, effort: medium}

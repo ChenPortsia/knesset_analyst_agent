@@ -6,8 +6,11 @@ passes a fake and another provider (e.g. `ChatOpenAI`) is one factory away.
 """
 
 from collections.abc import Callable
+from functools import cache
+from pathlib import Path
 from typing import Any
 
+import yaml
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 from langchain_core.outputs import LLMResult
@@ -24,12 +27,25 @@ FALLBACK_MODELS = {"claude-opus-5-5", "claude-sonnet-5-5"}  # Haiku 5.5 has no s
 ModelFactory = Callable[[str, str], BaseChatModel]  # (agent, effort) → chat model
 
 
+AGENTS = Path(__file__).with_name("agents.yaml")
+
+
+@cache
+def agents() -> dict[str, dict]:
+    """Model and effort per agent (agents.yaml)."""
+    return yaml.safe_load(AGENTS.read_text(encoding="utf-8"))
+
+
 def model_name(agent: str) -> str:
-    return getattr(settings(), f"agent_{agent}_model")
+    return agents()[agent]["model"]
+
+
+def effort(agent: str) -> str:
+    return agents()[agent].get("effort", "medium")
 
 
 def chat_model(agent: str, effort: str = "medium", name: str | None = None) -> BaseChatModel:
-    """The agent's model (`name`, else .env) with its effort: Claude with the server-side
+    """The agent's model (`name`, else agents.yaml) with its effort: Claude with the server-side
     refusal fallback where the model has it, or an OpenAI model (`gpt-…`)."""
     name = name or model_name(agent)
     if name.startswith("gpt-"):

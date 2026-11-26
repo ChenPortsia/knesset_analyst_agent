@@ -1,5 +1,5 @@
-# Model configurations for `knesset eval`: agent → model; agents not listed keep the .env model.
-baseline: {}  # .env (since 25 Nov 2026: Haiku specialists, Sonnet orchestrator)
+# Model configurations for `knesset eval`: agent → model; agents not listed keep agents.yaml.
+baseline: {}  # src/knesset/agents/agents.yaml (Haiku specialists, Sonnet orchestrator)
 sonnet-specialists:  # the models before 25 Nov 2026, for comparison
   analyst: claude-sonnet-5-5
   researcher: claude-sonnet-5-5

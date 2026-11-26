@@ -406,3 +406,21 @@ def test_traces_cli(monkeypatch):
     out = CliRunner().invoke(app, ["traces", "--n", "5"])
     assert out.exit_code == 0, out.output
     assert "path plan → finish · verdict pass · $0.050 · steps 4 · 40 s · cites True" in out.output
+
+
+def test_agents_config_names_every_agent_with_a_priced_model():
+    from knesset.agents.models import agents
+    from knesset.enrich.llm import PRICES
+
+    config = agents()
+    assert set(config) == {"orchestrator", "analyst", "researcher", "summarizer", "verifier"}
+    assert all(
+        c["model"] in PRICES and c["effort"] in ("low", "medium", "high") for c in config.values()
+    )
+
+
+def test_tool_loops_cache_their_prompt():
+    from knesset.agents.specialist import middleware
+
+    names = [type(m).__name__ for m in middleware(8)]
+    assert names == ["ModelCallLimitMiddleware", "AnthropicPromptCachingMiddleware"]

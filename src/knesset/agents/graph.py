@@ -26,7 +26,6 @@ from operator import add
 from typing import Annotated, Any, Literal, TypedDict
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import ModelCallLimitMiddleware
 from langchain.agents.structured_output import ProviderStrategy
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
@@ -37,8 +36,8 @@ from pydantic import BaseModel, Field
 from knesset.agents.client import client_for
 from knesset.agents.contracts import AgentResult, AgentTask, Finding
 from knesset.agents.llm import Budget, LimitReached
-from knesset.agents.models import BudgetCallback, ModelFactory, chat_model
-from knesset.agents.specialist import last_call, prompt, run_agent
+from knesset.agents.models import BudgetCallback, ModelFactory, chat_model, effort
+from knesset.agents.specialist import last_call, middleware, prompt, run_agent
 from knesset.config import settings
 from knesset.tools.common import resolve_entity
 from knesset.tools.lc import as_tool
@@ -134,6 +133,17 @@ def findings_text(results: list[dict], sources: list[dict]) -> str:
             refs = "".join(f"[{number[(e['type'], e['ref'])]}]" for e in f["evidence"])
             lines.append(f"- {f['claim']} {refs} (confidence: {f['confidence']})")
     return "\n".join(lines) or "(no findings)"
+
+
+def tag(name: str, body: str) -> str:
+    """Data for a prompt, inside XML tags, apart from the instructions."""
+    return f"<{name}>\n{body}\n</{name}>"
+
+
+def evidence(results: list[dict], sources: list[dict]) -> str:
+    """The findings (sources in brackets) and the numbered sources, tagged."""
+    return (tag("findings", findings_text(results, sources)) + "\n\n"
+            + tag("sources", sources_text(sources)))  # fmt: skip
 
 
 def sources_text(sources: list[dict]) -> str:
@@ -267,35 +277,37 @@ def plan(state: State, runtime: Runtime[Context]) -> State:
     ctx = runtime.context
     ctx.budget.step("plan")
     user = state.get("user_id", "anonymous")
-    text = f"Question: {state['question']}"
-    if state.get("ui_filters"):
-        text += f"\nFilters set by the user: {json.dumps(state['ui_filters'])}"
+    parts = []  # context first, the question and the instruction last
     if known := known_entities(runtime.store, user):
-        text += f"\n\nIds resolved in earlier questions (reuse them):\n{known}"
+        parts.append("Ids resolved in earlier questions (reuse them):\n" + tag("known_ids", known))
     if turns := state.get("conversation", [])[-3:]:
-        text += "\n\nEarlier in this conversation:\n" + "\n".join(
-            f"Q: {t['question']}\nA: {t['answer'][:600]}" for t in turns
-        )
+        earlier = "\n".join(f"Q: {t['question']}\nA: {t['answer'][:600]}" for t in turns)
+        parts.append("Earlier in this conversation:\n" + tag("conversation", earlier))
+    question = f"Question: {state['question']}"
+    if state.get("ui_filters"):
+        question += f"\nFilters set by the user: {json.dumps(state['ui_filters'])}"
+    parts.append(question)
     if state.get("verdict", {}).get("status") == "fail":
         missing = [i["problem"] for i in state["verdict"]["issues"] if i["kind"] == "missing"]
-        text += (
-            "\n\nThe verifier found information missing from a first answer:\n- "
+        found = findings_text(state["results"], sources_of(state["results"]))
+        parts.insert(-1, tag("findings_so_far", found))
+        parts.append(
+            "The verifier found information missing from a first answer:\n- "
             + "\n- ".join(missing)
-            + "\n\nFindings so far:\n"
-            + findings_text(state["results"], sources_of(state["results"]))
-            + "\n\nPlan only the tasks (at most 2) that find the missing information."
+            + "\nPlan only the tasks (at most 2) that find the missing information."
         )
+    text = "\n\n".join(parts)
     planner = create_agent(
-        model=ctx.models("orchestrator", "medium"),
+        model=ctx.models("orchestrator", effort("orchestrator")),
         tools=[as_tool(resolve_entity)],
         system_prompt=prompt("orchestrator"),
         response_format=ProviderStrategy(Plan),
-        middleware=[ModelCallLimitMiddleware(run_limit=6, exit_behavior="end")],
+        middleware=middleware(6),
         name="planner",
     )
     messages, result = run_agent(planner, text, ctx.config)
     if result is None:  # out of calls or a broken JSON: plan from what the tools returned
-        model = ctx.models("orchestrator", "medium")
+        model = ctx.models("orchestrator", effort("orchestrator"))
         result = last_call(model, Plan, prompt("orchestrator"), messages, ctx.config)["parsed"]
     if result is None:
         raise RuntimeError("the planner gave no plan")
@@ -361,7 +373,7 @@ def specialist(payload: TaskState, runtime: Runtime[Context]) -> State:
 
 
 def structured(ctx: Context, schema: type[BaseModel], system: str, text: str) -> Any:
-    model = ctx.models("orchestrator", "medium").with_structured_output(
+    model = ctx.models("orchestrator", effort("orchestrator")).with_structured_output(
         schema, method="json_schema"
     )
     return model.invoke([SystemMessage(system), HumanMessage(text)], ctx.config)
@@ -372,8 +384,8 @@ def draft(state: State, runtime: Runtime[Context]) -> State:
     ctx.budget.step("draft")
     sources = sources_of(state["results"])
     text = (
-        f"Question: {state['question']}\n\nFindings (sources in brackets):\n"
-        f"{findings_text(state['results'], sources)}\n\nSources:\n{sources_text(sources)}"
+        evidence(state["results"], sources)
+        + f"\n\nQuestion: {state['question']}\n\nWrite the answer from the findings above."
     )
     result: Draft = structured(ctx, Draft, prompt("draft"), text)
     return {"draft": result.model_dump(), "sources": sources}
@@ -392,13 +404,13 @@ def verify(state: State, runtime: Runtime[Context]) -> Command[Literal["finish",
         verdict = {"status": "pass", "issues": [], "checked": "sql in code"}
         return Command(goto="finish", update={"verdict": verdict})
     cited = [s for s in sources if s["type"] == "chunk" and str(s["ref"]) in passages]
-    context = (f"Question: {question}\n\nDraft:\n{answer}\n\n"
-               f"Findings:\n{findings_text(state['results'], sources)}\n\n"
-               f"Sources:\n{sources_text(sources)}")  # fmt: skip
+    context = evidence(state["results"], sources)
     if cited:  # already read: the verifier needs get_chunks only for the others
-        context += "\n\nCited passages (already read):\n" + "\n".join(
+        read = "\n".join(
             f"[{s['n']}] chunk {s['ref']} — {passages[str(s['ref'])][:1500]}" for s in cited[:10]
         )
+        context += "\n\nCited passages (already read):\n" + tag("passages", read)
+    context += f"\n\nQuestion: {question}\n\n{tag('draft', answer)}"
     if numbers_ok:
         context += NUMBERS_CHECKED
     task = AgentTask(
@@ -431,13 +443,14 @@ def revise(state: State, runtime: Runtime[Context]) -> State:
     ctx.budget.step("revise")
     sources = state["sources"]
     issues = "\n".join(f"- {i['claim']}: {i['problem']}" for i in state["verdict"]["issues"])
+    draft = tag("draft", state["draft"]["answer"])
     text = (
-        f"Question: {state['question']}\n\nFindings (sources in brackets):\n"
-        f"{findings_text(state['results'], sources)}\n\nSources:\n{sources_text(sources)}"
-        f"\n\nYour draft:\n{state['draft']['answer']}\n\nThe verifier found these issues:\n"
-        f"{issues}\n\nRewrite the answer: remove or correct each flagged claim, or state it "
-        "as uncertain. Add no new fact. Write it as clean final text: no wrong values left in, "
-        "no editing notes. Say in caveats what you removed."
+        evidence(state["results"], sources)
+        + f"\n\nQuestion: {state['question']}\n\nYour draft:\n{draft}"
+        + f"\n\nThe verifier found these issues:\n{tag('issues', issues)}\n\n"
+        "Rewrite the answer: remove or correct each flagged claim, or state it as uncertain. "
+        "Add no new fact. Write it as clean final text: no wrong values left in, no editing "
+        "notes. Say in caveats what you removed."
     )
     result: Draft = structured(ctx, Draft, prompt("draft"), text)
     return {"draft": result.model_dump(), "revised": True}

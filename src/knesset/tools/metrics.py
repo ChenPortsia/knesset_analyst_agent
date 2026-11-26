@@ -40,9 +40,10 @@ def stage(vote: dict) -> str:
 
 @tool
 def bill_votes(bill_id: int) -> dict:
-    """Every plenum vote on a bill in time order, each with its reading stage (inferred from the
-    title: preliminary, first, second = sections and reservations, third = final), and how
-    each faction voted in the final vote (the last third-reading vote, else the last vote)."""
+    """Every plenum vote on a bill in time order, each with its reading stage as far as the title
+    and subject show it (preliminary, first, second = sections and reservations, third, or
+    other), and how each faction voted in the final vote: the bill's last vote (a bill's third
+    reading is its last vote; the stage labels are a hint, the order is the rule)."""
     votes, votes_sql = query(
         """select v.vote_id, v.vote_datetime, ps.knesset_num, v.vote_title, v.vote_subject,
                   v.vote_status_desc, v.n_for, v.n_against, v.n_abstain
@@ -54,16 +55,15 @@ def bill_votes(bill_id: int) -> dict:
         return {"bill_id": bill_id, "votes": [], "evidence": [{"type": "sql", "ref": votes_sql}]}
     for v in votes:
         v["stage"] = stage(v)
-    third = [v for v in votes if v["stage"] == "third"]
-    final = (third or votes)[-1]
+    final = votes[-1]
     by_faction, faction_sql = query(
         """select faction_name, result_desc, count(*) as mks from marts.fct_vote_result
            where vote_id = %(v)s and result_desc in ('בעד', 'נגד', 'נמנע')
            group by 1, 2 order by 1, 3 desc""",
         {"v": final["vote_id"]},
     )
-    second = [v for v in votes if v["stage"] == "second"]
-    shown = [v for v in votes if v["stage"] != "second"]  # sections and reservations: counted
+    second = [v for v in votes[:-1] if v["stage"] == "second"]
+    shown = [v for v in votes[:-1] if v["stage"] != "second"][-29:] + [final]  # sections: counted
     return {
         "bill_id": bill_id,
         "n_votes": len(votes),

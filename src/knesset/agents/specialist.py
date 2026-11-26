@@ -16,14 +16,20 @@ from pydantic import BaseModel, Field
 
 from knesset.agents.contracts import AgentResult, AgentTask, Evidence, Finding, Usage
 from knesset.agents.llm import Budget, LimitReached
-from knesset.agents.models import BudgetCallback, ModelFactory, chat_model, model_name, usage_of
+from knesset.agents.models import (
+    BudgetCallback,
+    ModelFactory,
+    chat_model,
+    effort,
+    model_name,
+    usage_of,
+)
 from knesset.semantic import brief
 from knesset.tools.lc import tools_for
 from knesset.tracing import tracer
 
 PROMPTS = Path(__file__).with_name("prompts")
 MAX_FINDINGS = 6  # per task, most important first: shorter drafts, fewer claims to check
-EFFORT = {"analyst": "medium", "researcher": "medium", "summarizer": "medium", "verifier": "medium"}
 MAX_CALLS = 8  # model calls per specialist task (middleware)
 
 
@@ -52,6 +58,17 @@ def prompt(name: str) -> str:
     return "\n\n".join(parts + [brief(name)]).strip()
 
 
+def middleware(max_calls: int) -> list:
+    """A cap on model calls, and prompt caching of the system prompt, tools and history: a tool
+    loop resends them on every call (ignored for non-Anthropic models)."""
+    from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+
+    return [
+        ModelCallLimitMiddleware(run_limit=max_calls, exit_behavior="end"),
+        AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+    ]
+
+
 def subgraph(agent: str, model: Any) -> Any:
     """The specialist as a compiled LangGraph agent: model ↔ tools, then a native structured
     answer (Claude's JSON output, sent with the tools; forced tool choice is not used)."""
@@ -60,7 +77,7 @@ def subgraph(agent: str, model: Any) -> Any:
         tools=tools_for(agent),
         system_prompt=prompt(agent),
         response_format=ProviderStrategy(Verdict if agent == "verifier" else Answer),
-        middleware=[ModelCallLimitMiddleware(run_limit=MAX_CALLS, exit_behavior="end")],
+        middleware=middleware(MAX_CALLS),
         name=agent,
     )
 
@@ -139,14 +156,13 @@ def run(task: AgentTask, budget: Budget, models: ModelFactory = chat_model) -> A
         span.set_attribute("agent", agent)
         span.set_attribute("task_id", task.task_id)
         span.set_attribute("instruction", task.instruction[:500])
-        text = f"Task: {task.instruction}"
+        text = f"<context>\n{task.context}\n</context>\n\n" if task.context else ""
+        text += f"Task: {task.instruction}"  # the task last, after the long context
         if task.filters:
             text += f"\n\nFilters from the user (always apply): {task.filters}"
-        if task.context:
-            text += f"\n\nContext:\n{task.context}"
         try:
             budget.step(f"{agent} {task.task_id}")
-            model = models(agent, EFFORT[agent])
+            model = models(agent, effort(agent))
             config = {"callbacks": [BudgetCallback(budget)], "recursion_limit": 10 * MAX_CALLS}
             messages, answer = run_agent(subgraph(agent, model), text, config)
             if answer is None:  # out of model calls, or a broken final JSON

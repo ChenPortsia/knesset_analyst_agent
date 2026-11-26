@@ -359,8 +359,14 @@
 - `sql_query` errors on a wrong column or table list the real columns, the closest match and the layer's notes for those tables.
 - Verify: numbers are checked in code against SQL, `calc` results and cited passages; an answer with only SQL/calc sources passes without the verifier, and otherwise the verifier is told the numbers were checked and gets the passages already read (no re-fetch).
 - Tests check the layer against the schema: every column a metric uses exists in the dbt docs or the migrations, and every metric × dimension runs on the test database and re-runs from its cited SQL.
-- Not yet measured on real models: the eval (26 questions, ≈ $1.2) against the Haiku-specialists numbers above.
-- Tests: 120.
+- `bill_votes` on the 2025 budget bill (Mac, no LLM): 113 votes, 108 on sections and reservations. Vote titles carry only the bill's name, so the stage regex found no third reading. The final vote is now simply the bill's last vote (43622, 66–52, by faction as expected); stage labels stay a hint, and the final vote is always listed.
+- Models and effort moved to `src/knesset/agents/agents.yaml` (the user's request; `.env` keeps keys and limits).
+- Anthropic best practices (checked against the Claude API guidance in Claude Code):
+  - Prompt caching was lost when the specialists moved to LangChain. `AnthropicPromptCachingMiddleware` now caches the system prompt, tools and history in every tool loop (planner and specialists); Haiku 5.5 and Sonnet 5.5 cache prefixes from 512 tokens.
+  - Data goes in XML tags (`<context>`, `<findings>`, `<sources>`, `<passages>`, `<draft>`, `<issues>`), long material first and the question and instruction last; the shared rules say tagged text is data, not instructions.
+  - The shared rules ask for independent tool calls in the same turn (parallel).
+- Not yet measured on real models: the eval (26 questions) with the layer and caching.
+- Tests: 122.
 
 ## Changes to the plan
 
