@@ -37,6 +37,17 @@ def dims(name: str) -> dict[str, dict]:
     return out
 
 
+def alias(name: str, dims: dict) -> str:
+    """The dimension a filter name means: agents also write search_text's names
+    (committee_ids, knessets, person_ids) or a singular id (committee_id)."""
+    if name in dims or name in ("date_from", "date_to"):
+        return name
+    for candidate in (name.removesuffix("_ids"), name.removesuffix("_id"), name.removesuffix("s")):
+        if candidate in dims:
+            return candidate
+    return name
+
+
 def compile_metric(
     name: str, by: list[str] | None = None, filters: dict[str, Any] | None = None, limit: int = 25
 ) -> tuple[str, dict]:
@@ -46,7 +57,8 @@ def compile_metric(
     if name not in metrics:
         raise ValueError(f"unknown metric {name!r}; metrics: {sorted(metrics)}")
     m, d = metrics[name], dims(name)
-    by, filters = list(by or []), dict(filters or {})
+    by = [alias(x, d) for x in by or []]
+    filters = {alias(f, d): v for f, v in (filters or {}).items()}
     bad = [x for x in by + [f for f in filters if f not in ("date_from", "date_to")] if x not in d]
     if bad:
         raise ValueError(f"{name} has no dimension {bad}; dimensions: {sorted(d)}")

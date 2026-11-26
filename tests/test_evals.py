@@ -122,3 +122,9 @@ def test_follow_up_is_asked_in_the_same_thread(data, monkeypatch):  # noqa: F811
     assert result["usage"]["cost_usd"] == pytest.approx(2 * 9 * 3000 / 1e6)  # both questions
     plans = [p for a, p in script.prompts if a == "planner"]
     assert "Earlier in this conversation" in plans[-1]
+
+
+def test_truth_keeps_columns_that_share_a_name(data):  # noqa: F811
+    """Two count(*) columns are both called "count"; the grader must check both."""
+    sql = "select count(*) filter (where person_id = 1), count(*) from marts.dim_person"
+    assert evals.truth(sql) == ["1", "3"]

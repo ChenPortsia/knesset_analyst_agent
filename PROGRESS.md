@@ -367,7 +367,20 @@
   - The shared rules ask for independent tool calls in the same turn (parallel).
 - `compute` takes the numbers written into the expression ("100 * 371397 / 7940859"), not a name → value map: OpenAI rejects open-object arguments (as with `make_chart`). The tool-schema test now fails on any required open-object argument.
 - OpenAI models run on the Responses API with `reasoning={"effort": …}` (OpenAI supports function calling with reasoning only there; LangChain already routed `gpt-6` tool calls there). Eval configs `luna-analyst` and `luna-summarizer` swap one role at a time.
-- Not yet measured on real models: the eval (26 questions) with the layer and caching.
+- **Eval with the semantic layer, caching and per-role Luna (Mac, 26 Nov 2026, $3.01 for 104 answers):**
+
+  | config | SQL right | text score | cited | $ / question | s / question |
+  |---|---|---|---|---|---|
+  | baseline (Haiku specialists) | 13/13 | 0.97 | 26/26 | 0.032 | 41 |
+  | luna-analyst | 13/13 | 1.00 | 26/26 | 0.031 | 42 |
+  | luna-summarizer | 13/13 | 0.86 | 26/26 | 0.029 | 41 |
+  | luna-specialists | 13/13 | 0.97 | 26/26 | 0.024 | 44 |
+
+  - Cost per question fell from $0.042 (Haiku specialists, before the layer) to $0.032; SQL questions now cost $0.008–0.025 (they were $0.013–0.068). The agents use `metric` and `bill_votes` (budget vote: 3 calls, $0.016, 23 s, was $0.249 and 138 s).
+  - The configurations differ by one or two answers out of 26: noise at this size. luna-summarizer was weakest (construction waste 0, judicial reform 0.67, plenum follow-up 0.5).
+  - Grading bugs found in the answers: reference queries with two columns named `count` kept only one value (24 vs 25, health vs education); the eval passed `knessets: [25, 26]` as a user filter, so no configuration could query the 24th Knesset (only luna-summarizer's analyst ignored it and answered 573 vs 102). Both fixed; the earlier SQL scores for those two questions were too generous.
+  - Tool-call errors seen: `metric`/`top_participants` with search-style filter names (`committee_ids`, `knessets`) in every configuration — now accepted as aliases; `share_of_words` with a `query` filter and `search_text` with `parent_type` — the errors now say what to use instead. Four parallel `search_text` calls with a committee filter timed out together once (open).
+  - `bill_votes` labels the last vote `final` (it had read "סעיף 9" in its subject and said "second", so answers doubted the final vote).
 - Tests: 122.
 
 ## Changes to the plan

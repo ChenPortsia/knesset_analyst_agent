@@ -112,7 +112,7 @@ def test_metric_values_and_filters(marts):
 def test_bill_votes_finds_the_final_vote(marts):
     result = bill_votes(900)
     assert result["n_votes"] == 3 and result["second_reading_votes"]["count"] == 1
-    assert [v["stage"] for v in result["votes"]] == ["first", "third"]
+    assert [v["stage"] for v in result["votes"]] == ["first", "final"]
     final = result["final_vote"]
     assert (final["vote_id"], final["n_for"], final["n_against"]) == (3, 66, 52)
     assert {r["faction_name"] for r in final["by_faction"]} == {"הליכוד", "יש עתיד"}
@@ -156,3 +156,20 @@ def test_briefs_give_each_agent_its_part():
         "researcher"
     )
     assert len(analyst) < 8000 and len(orchestrator) < 4000  # prompt size stays small
+
+
+def test_metric_filters_accept_search_style_names(marts):
+    """Agents write search_text's filter names; they mean the same dimensions."""
+    a = metric("attendance", ["organization"], {"committee_ids": [7], "knessets": [25]})
+    b = metric("attendance", ["organization"], {"committee": [7], "knesset": [25]})
+    assert a["rows"] == b["rows"] and a["rows"]
+    assert metric("bills", ["status"], {"committee_id": 7})["rows"]  # 'status' stays itself
+
+
+def test_unknown_search_filters_say_what_to_use_instead():
+    from knesset.tools.research import to_filters
+
+    with pytest.raises(ValueError, match="facets"):
+        to_filters({"query": "פסולת"})
+    with pytest.raises(ValueError, match="doc_types"):
+        to_filters({"parent_type": "plenum_session"})

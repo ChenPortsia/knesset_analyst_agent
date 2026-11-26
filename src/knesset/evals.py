@@ -18,7 +18,7 @@ import yaml
 from knesset.agents.graph import ask, numbers
 from knesset.agents.models import ModelFactory, factory
 from knesset.config import ROOT, settings
-from knesset.tools.common import rows
+from knesset.tools.sql import sql_query
 
 QUESTIONS = ROOT / "eval" / "questions.yaml"
 CONFIGS = ROOT / "eval" / "configs.yaml"
@@ -30,8 +30,8 @@ def load(path: Path) -> Any:
 
 def truth(sql: str) -> list[str]:
     """The reference query's first row, as strings (numbers normalized like the answer's)."""
-    (row,) = rows(sql)[:1]
-    return [str(v) for v in row.values()]
+    row = sql_query(sql)["rows"][0]  # by position: two columns may share a name ("count")
+    return [str(v) for v in row]
 
 
 def grade(q: dict, answer: str, sources: list[dict], expected: list[str] | None = None) -> dict:
@@ -57,9 +57,8 @@ def answer_one(
     thread = uuid.uuid4().hex
     try:
         cost = 0.0
-        for q in [*before, question]:
-            *_, (_, result) = ask(q, user_id=user_id, thread_id=thread, models=models(),
-                                  filters={"knessets": [25, 26]})  # fmt: skip
+        for q in [*before, question]:  # no UI filters: each question says which Knesset
+            *_, (_, result) = ask(q, user_id=user_id, thread_id=thread, models=models())
             cost += result["usage"]["cost_usd"]
         result["usage"]["cost_usd"] = cost
         return result

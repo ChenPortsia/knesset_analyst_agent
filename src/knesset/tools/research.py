@@ -34,12 +34,22 @@ FACETS = {  # by → (label expression, joins)
 }
 
 
+HINTS = {  # filter names agents tried, and what to do instead
+    "query": "A topic is not a filter: facets(by=…, query=…) counts chunks about it, and "
+    "share_of_words takes sections, speakers or committees",
+    "parent_type": 'Use doc_types, e.g. ["plenum_session"] or ["committee_session"]',
+    "dates": "Use date_from and date_to (YYYY-MM-DD)",
+}
+
+
 def to_filters(filters: dict[str, Any] | None) -> Filters:
     """Filters from an agent's JSON; unknown keys are an error the agent can read."""
     filters = dict(filters or {})
     unknown = set(filters) - FILTER_KEYS
     if unknown:
-        raise ValueError(f"unknown filters {sorted(unknown)}; allowed: {sorted(FILTER_KEYS)}")
+        hints = [HINTS[k] for k in sorted(unknown) if k in HINTS]
+        raise ValueError(f"unknown filters {sorted(unknown)}; allowed: {sorted(FILTER_KEYS)}"
+                         + "".join(f". {h}" for h in hints))  # fmt: skip
     if filters.get("items"):
         items = filters["items"]
         if not all(len(x) == 2 and all(isinstance(v, int) for v in x) for x in items):

@@ -56,6 +56,7 @@ def bill_votes(bill_id: int) -> dict:
     for v in votes:
         v["stage"] = stage(v)
     final = votes[-1]
+    final["stage"] = "final"  # the last vote is the final one, whatever its subject says
     by_faction, faction_sql = query(
         """select faction_name, result_desc, count(*) as mks from marts.fct_vote_result
            where vote_id = %(v)s and result_desc in ('בעד', 'נגד', 'נמנע')
